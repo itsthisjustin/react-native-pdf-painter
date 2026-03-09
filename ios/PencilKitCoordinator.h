@@ -18,6 +18,7 @@ using namespace facebook::react;
 @interface PencilKitCoordinator : NSObject <PDFPageOverlayViewProvider, PKCanvasViewDelegate>
 @property (nonatomic, strong) NSMutableDictionary<NSString *, PKCanvasView *> *pageToViewMapping;
 @property (nonatomic, weak) id<PencilKitCoordinatorDelegate> delegate;
+@property (nonatomic, assign) BOOL toolPickerVisible;
 @property PdfAnnotationViewBrushSettingsStruct currentBrushSettings;
 
 

@@ -14,6 +14,7 @@
     self = [super init];
     if (self) {
         _pageToViewMapping = [NSMutableDictionary dictionary];
+        _toolPickerVisible = NO;
     }
     return self;
 }
@@ -35,6 +36,15 @@
         self.pageToViewMapping[page.label] = canvasView;
         resultView = canvasView;
         [canvasView becomeFirstResponder];
+        if (self.toolPickerVisible) {
+            MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [model.toolPicker addObserver:canvasView];
+                [canvasView becomeFirstResponder];
+                [model.toolPicker setVisible:YES forFirstResponder:canvasView];
+                [self applyDrawingPolicyToVisibleCanvases];
+            });
+        }
     }
     
     // If there is an existing drawing, apply it to the canvas
@@ -124,8 +134,17 @@
 }
 
 - (void)setToolPickerVisible:(PDFPage *)pdfPage isVisible:(bool)visible {
+    self.toolPickerVisible = visible;
     MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
+    if (!pdfPage) {
+        [self applyDrawingPolicyToVisibleCanvases];
+        return;
+    }
     PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    if (!canvasView) {
+        [self applyDrawingPolicyToVisibleCanvases];
+        return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         if (visible) {
             [model.toolPicker addObserver:canvasView];
