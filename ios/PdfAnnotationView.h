@@ -10,7 +10,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PdfAnnotationView : RCTViewComponentView<PencilKitCoordinatorDelegate>
+@interface PdfAnnotationView : RCTViewComponentView<PencilKitCoordinatorDelegate, PKCanvasViewDelegate>
 @end
 
 NS_ASSUME_NONNULL_END

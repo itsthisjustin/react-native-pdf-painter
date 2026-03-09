@@ -41,7 +41,10 @@ export type LinkCompletedEvent = {
 export interface NativeProps extends ViewProps {
     backgroundColor?: string;
     pdfUrl?: string;
+    canvasMode?: boolean;
+    drawWithFinger?: boolean;
     thumbnailMode?: boolean;
+    pageNavigationEnabled?: boolean;
     annotationFile?: string;
     autoSave?: boolean;
     brushSettings?: BrushSettings;

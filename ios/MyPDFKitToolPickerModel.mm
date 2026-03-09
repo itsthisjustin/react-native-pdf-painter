@@ -15,10 +15,11 @@
 
 - (instancetype)init {
     self = [super init];
-    NSLog(@"Init Toolpicker");
     if (self) {
         _toolPicker = [[PKToolPicker alloc] init];
-        NSLog(@"Init Toolpicker initialized");
+        if (@available(iOS 14.0, *)) {
+            _toolPicker.showsDrawingPolicyControls = YES;
+        }
     }
     return self;
 }

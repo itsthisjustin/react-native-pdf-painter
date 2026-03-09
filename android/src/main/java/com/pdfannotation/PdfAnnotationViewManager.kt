@@ -37,8 +37,20 @@ class PdfAnnotationViewManager : SimpleViewManager<PdfAnnotationView>(),
     view?.viewModel?.updatePdfFile(value)
   }
 
+  override fun setCanvasMode(view: PdfAnnotationView?, value: Boolean) {
+    view?.viewModel?.updateCanvasMode(value)
+  }
+
+  override fun setDrawWithFinger(view: PdfAnnotationView?, value: Boolean) {
+    // NOOP, iOS-only for now.
+  }
+
   override fun setThumbnailMode(view: PdfAnnotationView?, value: Boolean) {
     view?.viewModel?.updateThumbnailMode(value)
+  }
+
+  override fun setPageNavigationEnabled(view: PdfAnnotationView?, value: Boolean) {
+    view?.viewModel?.updatePageNavigationEnabled(value)
   }
 
   override fun setAnnotationFile(view: PdfAnnotationView?, value: String?) {

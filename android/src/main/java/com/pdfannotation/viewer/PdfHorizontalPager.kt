@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,12 +46,13 @@ fun PdfHorizontalPager(viewModel: PdfAnnotationViewModel) {
     val currentPage by viewModel.currentPage.collectAsState()
     val links by viewModel.links.links.collectAsState()
     val beyondViewportPageCount by viewModel.beyondViewportPageCount.collectAsState()
+    val pageNavigationEnabled by viewModel.pageNavigationEnabled.collectAsState()
 
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
     val renderer = remember(file, backgroundColor) { file?.let {PdfRender(it, 3f, backgroundColor) }}
     val pagerState = rememberPagerState(pageCount = {renderer?.pageCount ?: 1})
-    val canScroll by remember { derivedStateOf { brushSettings == null } }
+    val canScroll = brushSettings == null && pageNavigationEnabled
     val inProgressStrokesView: InProgressStrokesView = rememberInProgressStrokesView()
 
     var zoom by remember { mutableStateOf(Zoom()) }
@@ -124,6 +124,9 @@ fun PdfHorizontalPager(viewModel: PdfAnnotationViewModel) {
                 brushSettings = brushSettings,
                 viewModel = strokes,
                 onChangePage = { pageDelta ->
+                    if (!pageNavigationEnabled) {
+                        return
+                    }
                     if (viewModel.links.canCreateLinks) {
                         return@PdfPage
                     }

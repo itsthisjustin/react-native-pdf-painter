@@ -77,6 +77,9 @@ export const PdfAnnotationView = forwardRef<Handle, Props>(
         {
             brushSettings,
             currentPage,
+            canvasMode,
+            drawWithFinger = true,
+            pageNavigationEnabled = true,
             style,
             renderPageIndicatorItem,
             onPageCount,
@@ -171,6 +174,9 @@ export const PdfAnnotationView = forwardRef<Handle, Props>(
                     {...props}
                     style={[styles.viewer, style]}
                     ref={nativeRef}
+                    canvasMode={canvasMode}
+                    drawWithFinger={drawWithFinger}
+                    pageNavigationEnabled={pageNavigationEnabled}
                     brushSettings={Platform.select({
                         ios: brushSettings ?? {
                             type: 'none',
@@ -201,7 +207,7 @@ export const PdfAnnotationView = forwardRef<Handle, Props>(
                                         (currentPage ?? stateCurrentPage) === i
                                     }
                                     onClick={() => {
-                                        if (currentPage && onPageChange) {
+                                        if (currentPage !== undefined && onPageChange) {
                                             onPageChange(i);
                                             return;
                                         }

@@ -7,9 +7,12 @@ import com.pdfannotation.model.PdfAnnotationViewModel
 
 @Composable
 fun PdfAnnotationViewer(viewModel: PdfAnnotationViewModel) {
+    val canvasMode by viewModel.canvasMode.collectAsState()
     val thumbnail by viewModel.thumbnailMode.collectAsState()
 
-    if (thumbnail) {
+    if (canvasMode) {
+        CanvasAnnotationView(viewModel)
+    } else if (thumbnail) {
         PdfThumbnail(viewModel)
     } else {
         PdfHorizontalPager(viewModel)

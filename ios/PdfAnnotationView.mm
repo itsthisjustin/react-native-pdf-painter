@@ -15,9 +15,40 @@ using namespace facebook::react;
 
 @implementation PdfAnnotationView {
     CustomPdfView * _view;
+    PKCanvasView * _canvasView;
     PencilKitCoordinator * _pencilKitCoordinator;
     RoundedTriangleAnnotation *firstLinkAnnotation;
     NSUInteger firstLinkPageIndex;
+}
+
+- (PKCanvasViewDrawingPolicy)resolvedDrawingPolicyForToolPickerVisible:(BOOL)toolPickerVisible {
+    if (!toolPickerVisible) {
+        return PKCanvasViewDrawingPolicyPencilOnly;
+    }
+    return UIPencilInteraction.prefersPencilOnlyDrawing
+        ? PKCanvasViewDrawingPolicyPencilOnly
+        : PKCanvasViewDrawingPolicyAnyInput;
+}
+
+- (void)applyCanvasDrawingPolicy:(BOOL)drawWithFinger {
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    BOOL toolPickerVisible = props.iosToolPickerVisible;
+    _canvasView.drawingPolicy = [self resolvedDrawingPolicyForToolPickerVisible:toolPickerVisible];
+    [_pencilKitCoordinator applyDrawingPolicyToVisibleCanvases];
+}
+
+- (void)updateCanvasToolPickerVisibility:(BOOL)visible {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
+        self->_canvasView.drawingPolicy = [self resolvedDrawingPolicyForToolPickerVisible:visible];
+        if (visible) {
+            [model.toolPicker addObserver:self->_canvasView];
+        } else {
+            [model.toolPicker removeObserver:self->_canvasView];
+        }
+        [self->_canvasView becomeFirstResponder];
+        [model.toolPicker setVisible:visible forFirstResponder:self->_canvasView];
+    });
 }
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
@@ -35,6 +66,10 @@ using namespace facebook::react;
         _view.displayMode = kPDFDisplaySinglePage;
         _view.displayDirection = kPDFDisplayDirectionHorizontal;
         _view.autoScales = true;
+        _canvasView = [[PKCanvasView alloc] initWithFrame:frame];
+        _canvasView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+        _canvasView.backgroundColor = [UIColor clearColor];
+        _canvasView.delegate = self;
         _pencilKitCoordinator = [[PencilKitCoordinator alloc] init];
         _pencilKitCoordinator.delegate = self;
         if (@available(iOS 16.0, *)) {
@@ -57,13 +92,26 @@ using namespace facebook::react;
 
         [_view usePageViewController:true withViewOptions:NULL];
 
+        self.contentView = _view;
+        [self applyCanvasDrawingPolicy:YES];
         [self updateThumbnailMode:false];
     }
 
     return self;
 }
 
+- (void)didMoveToWindow
+{
+    [super didMoveToWindow];
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (props.canvasMode) {
+        [self updateCanvasToolPickerVisibility:props.iosToolPickerVisible];
+    }
+}
+
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gestureRecognizer {
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (props.canvasMode) return;
     if (gestureRecognizer.state != UIGestureRecognizerStateBegan) return;
 
     CGPoint locationInView = [gestureRecognizer locationInView:_view];
@@ -72,7 +120,6 @@ using namespace facebook::react;
     if (!currentPage) return;
 
     CGPoint locationOnPage = [_view convertPoint:locationInView toPage:currentPage];
-    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
 
     for (PDFAnnotation *annotation in currentPage.annotations) {
         if (CGRectContainsPoint(annotation.bounds, locationOnPage)) {
@@ -94,9 +141,19 @@ using namespace facebook::react;
 - (void)handleTap:(UITapGestureRecognizer *)sender {
     if (sender.state != UIGestureRecognizerStateEnded) return;
 
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (props.canvasMode) {
+        CGPoint touchLocation = [sender locationInView:_canvasView];
+        PdfAnnotationViewEventEmitter::OnTap event = PdfAnnotationViewEventEmitter::OnTap{touchLocation.x, touchLocation.y};
+        if (_eventEmitter != nullptr) {
+           std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)
+            ->onTap(event);
+        }
+        return;
+    }
+
     CGPoint touchLocation = [sender locationInView:_view];
     CGFloat screenWidth = _view.bounds.size.width;
-    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
     bool addLink = props.brushSettings.type == PdfAnnotationViewType::Link;
 
     PDFPage *currentPage = _view.currentPage;
@@ -158,9 +215,10 @@ using namespace facebook::react;
     }
 
     NSInteger delta = 0;
-    if (touchLocation.x < screenWidth * 0.25 && !addLink) {
+    bool pageNavigationEnabled = props.pageNavigationEnabled;
+    if (pageNavigationEnabled && touchLocation.x < screenWidth * 0.25 && !addLink) {
         delta = -1;
-    } else if (touchLocation.x > screenWidth * 0.75 && !addLink) {
+    } else if (pageNavigationEnabled && touchLocation.x > screenWidth * 0.75 && !addLink) {
         delta = 1;
     } else {
         if (_view.currentSelection) {
@@ -187,6 +245,47 @@ using namespace facebook::react;
                 ->onDocumentFinished(event);
             }
         }
+    }
+}
+
+- (void)updateCanvasMode:(bool)isCanvasMode {
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (isCanvasMode) {
+        self.contentView = _canvasView;
+        [self applyCanvasDrawingPolicy:props.drawWithFinger];
+        [self updateCanvasToolPickerVisibility:props.iosToolPickerVisible];
+        if (_eventEmitter != nullptr) {
+            PdfAnnotationViewEventEmitter::OnPageCount countEvent = PdfAnnotationViewEventEmitter::OnPageCount{1};
+            PdfAnnotationViewEventEmitter::OnPageChange pageEvent = PdfAnnotationViewEventEmitter::OnPageChange{0};
+            std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)->onPageCount(countEvent);
+            std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)->onPageChange(pageEvent);
+        }
+    } else {
+        self.contentView = _view;
+    }
+}
+
+- (void)saveCanvasDrawingToDisk:(NSString *)filePath {
+    if ([filePath hasPrefix:@"file://"]) {
+        filePath = [filePath stringByReplacingOccurrencesOfString:@"file://" withString:@""];
+    }
+    NSData *data = [_canvasView.drawing dataRepresentation];
+    [data writeToFile:filePath atomically:YES];
+}
+
+- (void)loadCanvasDrawingFromDisk:(NSString *)filePath {
+    if ([filePath hasPrefix:@"file://"]) {
+        filePath = [filePath stringByReplacingOccurrencesOfString:@"file://" withString:@""];
+    }
+    NSData *data = [NSData dataWithContentsOfFile:filePath];
+    if (!data) {
+        _canvasView.drawing = [[PKDrawing alloc] init];
+        return;
+    }
+    NSError *error = nil;
+    PKDrawing *drawing = [[PKDrawing alloc] initWithData:data error:&error];
+    if (!error && drawing) {
+        _canvasView.drawing = drawing;
     }
 }
 
@@ -224,25 +323,69 @@ using namespace facebook::react;
         _view.maxScaleFactor = 4.0;
         _view.scaleFactor = _view.scaleFactorForSizeToFit;
     }
+    if (oldViewProps.canvasMode != newViewProps.canvasMode) {
+        [self updateCanvasMode:newViewProps.canvasMode];
+    }
+    if (oldViewProps.drawWithFinger != newViewProps.drawWithFinger) {
+        [self applyCanvasDrawingPolicy:newViewProps.drawWithFinger];
+    }
     if ((oldViewProps.brushSettings.size != newViewProps.brushSettings.size || oldViewProps.brushSettings.type != newViewProps.brushSettings.type || oldViewProps.brushSettings.color != newViewProps.brushSettings.color || oldViewProps.brushSettings.lineal != newViewProps.brushSettings.lineal)) {
-        if (@available(iOS 16.0, *)) {
+        if (newViewProps.canvasMode) {
+            NSString * colorString = [[NSString alloc] initWithUTF8String: newViewProps.brushSettings.color.c_str()];
+            UIColor *toolColor = [self hexStringToColor:colorString];
+            PKTool *tool;
+            switch (newViewProps.brushSettings.type) {
+                case PdfAnnotationViewType::PressurePen:
+                    tool = [[PKInkingTool alloc] initWithInkType:PKInkTypePencil color:toolColor width:newViewProps.brushSettings.size];
+                    break;
+                case PdfAnnotationViewType::Highlighter:
+                    tool = [[PKInkingTool alloc] initWithInkType:PKInkTypeMarker color:toolColor width:newViewProps.brushSettings.size];
+                    break;
+                case PdfAnnotationViewType::Eraser:
+                    if (@available(iOS 16.4, *)) {
+                        tool = [[PKEraserTool alloc] initWithEraserType:PKEraserTypeVector width:newViewProps.brushSettings.size];
+                    } else {
+                        tool = [[PKEraserTool alloc] initWithEraserType:PKEraserTypeVector];
+                    }
+                    break;
+                case PdfAnnotationViewType::Marker:
+                default:
+                    tool = [[PKInkingTool alloc] initWithInkType:PKInkTypePen color:toolColor width:newViewProps.brushSettings.size];
+                    break;
+            }
+            _canvasView.tool = tool;
+            [_canvasView setRulerActive:newViewProps.brushSettings.lineal];
+        } else if (@available(iOS 16.0, *)) {
             [_view setInMarkupMode:newViewProps.brushSettings.type != PdfAnnotationViewType::None && newViewProps.brushSettings.type != PdfAnnotationViewType::Link];
+            [_pencilKitCoordinator setDrawingTool:_view.currentPage brushSettings:newViewProps.brushSettings];
+        } else {
+            [_pencilKitCoordinator setDrawingTool:_view.currentPage brushSettings:newViewProps.brushSettings];
         }
-        [_pencilKitCoordinator setDrawingTool:_view.currentPage brushSettings:newViewProps.brushSettings];
     }
     if (oldViewProps.iosToolPickerVisible != newViewProps.iosToolPickerVisible) {
-        if (@available(iOS 16.0, *)) {
+        if (newViewProps.canvasMode) {
+            [self updateCanvasToolPickerVisibility:newViewProps.iosToolPickerVisible];
+        } else if (@available(iOS 16.0, *)) {
             [_view setInMarkupMode:newViewProps.iosToolPickerVisible];
+            [_pencilKitCoordinator setToolPickerVisible:_view.currentPage isVisible:newViewProps.iosToolPickerVisible];
+        } else {
+            [_pencilKitCoordinator setToolPickerVisible:_view.currentPage isVisible:newViewProps.iosToolPickerVisible];
         }
-        [_pencilKitCoordinator setToolPickerVisible:_view.currentPage isVisible:newViewProps.iosToolPickerVisible];
     }
     if (oldViewProps.annotationFile != newViewProps.annotationFile) {
         NSString * filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];
-        [(MyPDFDocument* )_view.document loadDrawingsFromDisk:filePath];
-        [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
+        if (newViewProps.canvasMode) {
+            [self loadCanvasDrawingFromDisk:filePath];
+        } else {
+            [(MyPDFDocument* )_view.document loadDrawingsFromDisk:filePath];
+            [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
+        }
     }
     if (oldViewProps.thumbnailMode != newViewProps.thumbnailMode) {
         [self updateThumbnailMode:newViewProps.thumbnailMode];
+    }
+    if (oldViewProps.pageNavigationEnabled != newViewProps.pageNavigationEnabled) {
+        [_view usePageViewController:newViewProps.pageNavigationEnabled withViewOptions:NULL];
     }
     if (oldViewProps.backgroundColor != newViewProps.backgroundColor) {
         NSString * hexColor = [[NSString alloc] initWithUTF8String: newViewProps.backgroundColor.c_str()];
@@ -259,8 +402,12 @@ using namespace facebook::react;
         return;
     }
     NSString * filePath = [[NSString alloc] initWithUTF8String: props.annotationFile.c_str()];
-    [_pencilKitCoordinator prepareForPersistance:(MyPDFDocument *)_view.document];
-    [(MyPDFDocument* )_view.document saveDrawingsToDisk:filePath];
+    if (props.canvasMode) {
+        [self saveCanvasDrawingToDisk:filePath];
+    } else {
+        [_pencilKitCoordinator prepareForPersistance:(MyPDFDocument *)_view.document];
+        [(MyPDFDocument* )_view.document saveDrawingsToDisk:filePath];
+    }
 }
 
 - (void)updateThumbnailMode:(bool) isThumbnail {
@@ -285,34 +432,59 @@ using namespace facebook::react;
         if (args.count == 0) {
             return NSLog(@"Missing parameter for loading annotations!");
         }
-        [_pencilKitCoordinator prepareForPersistance:(MyPDFDocument *)_view.document];
-        [(MyPDFDocument* )_view.document saveDrawingsToDisk:(NSString*) args[0]];
+        const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+        if (props.canvasMode) {
+            [self saveCanvasDrawingToDisk:(NSString *)args[0]];
+        } else {
+            [_pencilKitCoordinator prepareForPersistance:(MyPDFDocument *)_view.document];
+            [(MyPDFDocument* )_view.document saveDrawingsToDisk:(NSString*) args[0]];
+        }
     }
     if ([commandName isEqual:@"loadAnnotations"]) {
         if (args.count == 0) {
             return NSLog(@"Missing parameter for loading annotations!");
         }
-        [(MyPDFDocument* )_view.document loadDrawingsFromDisk:(NSString*) args[0]];
-        [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
+        const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+        if (props.canvasMode) {
+            [self loadCanvasDrawingFromDisk:(NSString *)args[0]];
+        } else {
+            [(MyPDFDocument* )_view.document loadDrawingsFromDisk:(NSString*) args[0]];
+            [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
+        }
     }
     if ([commandName isEqual:@"undo"]) {
-        [_pencilKitCoordinator undo:_view.currentPage];
+        const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+        if (props.canvasMode) {
+            [[_canvasView undoManager] undo];
+        } else {
+            [_pencilKitCoordinator undo:_view.currentPage];
+        }
     }
     if ([commandName isEqual:@"redo"]) {
-        [_pencilKitCoordinator redo:_view.currentPage];
+        const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+        if (props.canvasMode) {
+            [[_canvasView undoManager] redo];
+        } else {
+            [_pencilKitCoordinator redo:_view.currentPage];
+        }
     }
     if ([commandName isEqual:@"clear"]) {
-        PDFPage *currentPage = _view.currentPage;
-        if (currentPage) {
-            NSArray<PDFAnnotation *> *annotations = [currentPage annotations];
-            if (!annotations) return;
-            for (PDFAnnotation *annotation in annotations) {
-                if ([annotation isKindOfClass:[RoundedTriangleAnnotation class]]) {
-                    [currentPage removeAnnotation:annotation];
+        const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+        if (props.canvasMode) {
+            [_canvasView setDrawing:[[PKDrawing alloc] init]];
+        } else {
+            PDFPage *currentPage = _view.currentPage;
+            if (currentPage) {
+                NSArray<PDFAnnotation *> *annotations = [currentPage annotations];
+                if (!annotations) return;
+                for (PDFAnnotation *annotation in annotations) {
+                    if ([annotation isKindOfClass:[RoundedTriangleAnnotation class]]) {
+                        [currentPage removeAnnotation:annotation];
+                    }
                 }
             }
+            [_pencilKitCoordinator clear:_view.currentPage];
         }
-        [_pencilKitCoordinator clear:_view.currentPage];
     }
     if ([commandName isEqual:@"setPage"]) {
         if (args.count == 0) {
@@ -324,6 +496,15 @@ using namespace facebook::react;
             [_view goToPage:[_view.document pageAtIndex:firstInt]];
         }
     }
+}
+
+- (void)canvasViewDrawingDidChange:(PKCanvasView *)canvasView {
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (!props.autoSave || !props.canvasMode) {
+        return;
+    }
+    NSString * filePath = [[NSString alloc] initWithUTF8String: props.annotationFile.c_str()];
+    [self saveCanvasDrawingToDisk:filePath];
 }
 
 Class<RCTComponentViewProtocol> PdfAnnotationViewCls(void)

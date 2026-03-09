@@ -27,6 +27,7 @@ using namespace facebook::react;
 -(void)updateDrawings:(MyPDFDocument *)document;
 - (void)setDrawingTool:(PDFPage *)pdfPage brushSettings:(PdfAnnotationViewBrushSettingsStruct)config;
 - (void)setToolPickerVisible:(PDFPage *)pdfPage isVisible:(bool)visible;
+- (void)applyDrawingPolicyToVisibleCanvases;
 - (UIColor *)colorFromString:(NSString *)colorInHex;
 -(void)undo:(PDFPage *)pdfPage;
 -(void)redo:(PDFPage *)pdfPage;
@@ -35,4 +36,3 @@ using namespace facebook::react;
 @end
 
 NS_ASSUME_NONNULL_END
-

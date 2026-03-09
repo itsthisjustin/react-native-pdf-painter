@@ -30,7 +30,9 @@ class PdfAnnotationViewModel(
 ) : ViewModel() {
     private val _backgroundColor = MutableStateFlow<Int?>(null)
     private val _pdfFile = MutableStateFlow<File?>(null)
+    private val _canvasMode = MutableStateFlow(false)
     private val _thumbnailMode = MutableStateFlow(false)
+    private val _pageNavigationEnabled = MutableStateFlow(true)
     private val _annotationFile = MutableStateFlow<File?>(null)
     private var _autoSave = false
     private val _brushSettings = MutableStateFlow<BrushSettings?>(null)
@@ -44,7 +46,9 @@ class PdfAnnotationViewModel(
 
     val backgroundColor: StateFlow<Int?> get() = _backgroundColor
     val pdfFile: StateFlow<File?> get() = _pdfFile
+    val canvasMode: StateFlow<Boolean> get() = _canvasMode
     val thumbnailMode: StateFlow<Boolean> get() = _thumbnailMode
+    val pageNavigationEnabled: StateFlow<Boolean> get() = _pageNavigationEnabled
     val annotationFile: StateFlow<File?> get() = _annotationFile
     val brushSettings: StateFlow<BrushSettings?> get() = _brushSettings
     val strokes: StateFlow<Strokes> get() = _strokes
@@ -66,8 +70,21 @@ class PdfAnnotationViewModel(
         loadAnnotations()
     }
 
+    fun updateCanvasMode(newMode: Boolean) {
+        _canvasMode.value = newMode
+        if (newMode) {
+            _currentPage.value = 0
+            onPageCount?.invoke(1)
+            onPageChange?.invoke(0)
+        }
+    }
+
     fun updateThumbnailMode(newMode: Boolean) {
         _thumbnailMode.value = newMode
+    }
+
+    fun updatePageNavigationEnabled(enabled: Boolean) {
+        _pageNavigationEnabled.value = enabled
     }
 
     fun updateAnnotationFile(newAnnotationFile: String?) {
@@ -217,4 +234,3 @@ class PdfAnnotationViewModel(
         }
     }
 }
-

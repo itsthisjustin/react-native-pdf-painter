@@ -27,7 +27,7 @@
     } else {
         // Create a new PKCanvasView if there is no overlay for this page
         PKCanvasView *canvasView = [[PKCanvasView alloc] initWithFrame:CGRectZero];
-        canvasView.drawingPolicy = PKCanvasViewDrawingPolicyAnyInput;
+        canvasView.drawingPolicy = PKCanvasViewDrawingPolicyPencilOnly;
         canvasView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
         canvasView.delegate = self;
         
@@ -126,13 +126,27 @@
 - (void)setToolPickerVisible:(PDFPage *)pdfPage isVisible:(bool)visible {
     MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
     PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
-    [model.toolPicker setVisible:visible forFirstResponder:canvasView];
-    if (visible) {
-        [model.toolPicker addObserver:canvasView];
-    } else {
-        [model.toolPicker removeObserver:canvasView];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (visible) {
+            [model.toolPicker addObserver:canvasView];
+        } else {
+            [model.toolPicker removeObserver:canvasView];
+        }
+        [canvasView becomeFirstResponder];
+        [model.toolPicker setVisible:visible forFirstResponder:canvasView];
+        [self applyDrawingPolicyToVisibleCanvases];
+    });
+}
+
+- (void)applyDrawingPolicyToVisibleCanvases {
+    MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
+    BOOL toolPickerVisible = model.toolPicker.isVisible;
+    PKCanvasViewDrawingPolicy policy = (!toolPickerVisible || UIPencilInteraction.prefersPencilOnlyDrawing)
+        ? PKCanvasViewDrawingPolicyPencilOnly
+        : PKCanvasViewDrawingPolicyAnyInput;
+    for (PKCanvasView *canvasView in self.pageToViewMapping.allValues) {
+        canvasView.drawingPolicy = policy;
     }
-    [canvasView becomeFirstResponder];
 }
 
 // Helper method to convert a color string (hex with optional alpha) to UIColor
@@ -170,4 +184,3 @@
 }
 
 @end
-
