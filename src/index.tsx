@@ -14,6 +14,7 @@ import React, {
     useState,
 } from 'react';
 import {
+    NativeModules,
     Platform,
     type StyleProp,
     StyleSheet,
@@ -26,6 +27,24 @@ import {
 } from 'react-native';
 export * from './PdfAnnotationViewNativeComponent';
 
+/**
+ * iOS only. Renders every page of a PDF to a PNG file in outputDir (longest
+ * side = maxDimension pixels) and resolves with the ordered file:// URIs.
+ */
+export async function renderPdfToImages(
+    pdfPath: string,
+    outputDir: string,
+    maxDimension: number = 2048
+): Promise<string[]> {
+    const rasterizer = NativeModules.PdfPageRasterizer;
+    if (!rasterizer) {
+        throw new Error(
+            'PdfPageRasterizer native module is unavailable on this platform'
+        );
+    }
+    return rasterizer.renderPdfToImages(pdfPath, outputDir, maxDimension);
+}
+
 type ComponentRef = React.ComponentRef<typeof NativePdfAnnotationView>;
 
 export interface Handle {
@@ -37,11 +56,10 @@ export interface Handle {
     setPage: (page: number) => void;
 }
 
-export interface Props
-    extends Omit<
-        NativeProps,
-        'onPageCount' | 'onPageChange' | 'onDocumentFinished'
-    > {
+export interface Props extends Omit<
+    NativeProps,
+    'onPageCount' | 'onPageChange' | 'onDocumentFinished'
+> {
     onPageChange?: (currentPage: number) => unknown;
     onPageCount?: (pageCount: number) => unknown;
     renderPageIndicatorItem?: (props: PageIndicatorProps) => ReactElement;
@@ -207,7 +225,10 @@ export const PdfAnnotationView = forwardRef<Handle, Props>(
                                         (currentPage ?? stateCurrentPage) === i
                                     }
                                     onClick={() => {
-                                        if (currentPage !== undefined && onPageChange) {
+                                        if (
+                                            currentPage !== undefined &&
+                                            onPageChange
+                                        ) {
                                             onPageChange(i);
                                             return;
                                         }
