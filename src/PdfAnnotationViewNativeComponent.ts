@@ -45,12 +45,20 @@ export interface NativeProps extends ViewProps {
     drawWithFinger?: boolean;
     /**
      * iOS only. Keeps PencilKit markup active even while the tool picker is
-     * hidden, so the Apple Pencil can always draw (with palm rejection), and
-     * restricts the PDF view's internal gestures to pencil touches so finger
-     * input passes through to ancestor views. Also disables tap-edge page
-     * navigation.
+     * hidden, so the Apple Pencil can always draw (with palm rejection).
+     * Also disables tap-edge page navigation. Finger touches keep driving
+     * the PDF view's internal gestures (scroll, zoom, page swipe) unless
+     * iosFingerPassthrough is also set.
      */
     iosPencilAlwaysDraws?: boolean;
+    /**
+     * iOS only. Requires iosPencilAlwaysDraws. Restricts the PDF view's
+     * internal gestures to pencil touches so finger input passes through to
+     * ancestor views (e.g. React Native pan/zoom handlers behind a
+     * background PDF). Without it, fingers pan/zoom/page-swipe the PDF
+     * itself while the pencil draws.
+     */
+    iosFingerPassthrough?: boolean;
     thumbnailMode?: boolean;
     pageNavigationEnabled?: boolean;
     annotationFile?: string;

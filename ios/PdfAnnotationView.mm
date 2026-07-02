@@ -55,12 +55,15 @@ using namespace facebook::react;
     }
 }
 
-// With iosPencilAlwaysDraws set (and the tool picker hidden), only pencil
-// touches may drive the PDF view's internal gestures; finger touches fall
-// through to ancestor views (e.g. React Native pan/zoom handlers).
+// With iosPencilAlwaysDraws + iosFingerPassthrough set (and the tool picker
+// hidden), only pencil touches may drive the PDF view's internal gestures;
+// finger touches fall through to ancestor views (e.g. React Native pan/zoom
+// handlers behind a background PDF). Without iosFingerPassthrough, fingers
+// keep interacting with the PDF view itself (scroll, zoom, page swipe) while
+// the pencil draws.
 - (void)refreshPencilTouchFiltering {
     const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
-    if (!props.iosPencilAlwaysDraws || props.canvasMode) {
+    if (!props.iosPencilAlwaysDraws || !props.iosFingerPassthrough || props.canvasMode) {
         return;
     }
     BOOL pencilOnly = !props.iosToolPickerVisible;
