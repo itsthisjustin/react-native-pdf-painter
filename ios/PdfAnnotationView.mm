@@ -37,6 +37,15 @@ using namespace facebook::react;
     [_pencilKitCoordinator applyDrawingPolicyToVisibleCanvases];
 }
 
+- (void)applyClearBackgroundToScrollViews:(UIView *)view {
+    for (UIView *subview in view.subviews) {
+        if ([subview isKindOfClass:[UIScrollView class]] || [NSStringFromClass(subview.class) containsString:@"PageViewController"]) {
+            subview.backgroundColor = [UIColor clearColor];
+        }
+        [self applyClearBackgroundToScrollViews:subview];
+    }
+}
+
 - (void)applyAllowedTouchTypes:(NSArray<NSNumber *> *)types toView:(UIView *)view {
     for (UIGestureRecognizer *recognizer in view.gestureRecognizers) {
         recognizer.allowedTouchTypes = types;
@@ -359,6 +368,19 @@ using namespace facebook::react;
         _view.minScaleFactor = _view.scaleFactorForSizeToFit;
         _view.maxScaleFactor = 4.0;
         _view.scaleFactor = _view.scaleFactorForSizeToFit;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            const auto &loadedProps = *std::static_pointer_cast<PdfAnnotationViewProps const>(self->_props);
+            if (loadedProps.iosPencilAlwaysDraws && !loadedProps.canvasMode) {
+                if (@available(iOS 16.0, *)) {
+                    [self->_view setInMarkupMode:YES];
+                }
+            }
+            NSString * bg = [[NSString alloc] initWithUTF8String: loadedProps.backgroundColor.c_str()];
+            if ([bg isEqualToString:@"transparent"]) {
+                [self applyClearBackgroundToScrollViews:self->_view];
+            }
+            [self refreshPencilTouchFiltering];
+        });
     }
     if (oldViewProps.canvasMode != newViewProps.canvasMode) {
         [self updateCanvasMode:newViewProps.canvasMode];
@@ -441,7 +463,12 @@ using namespace facebook::react;
     }
     if (oldViewProps.backgroundColor != newViewProps.backgroundColor) {
         NSString * hexColor = [[NSString alloc] initWithUTF8String: newViewProps.backgroundColor.c_str()];
-        _view.backgroundColor = [self hexStringToColor:hexColor];
+        if ([hexColor isEqualToString:@"transparent"]) {
+            _view.backgroundColor = [UIColor clearColor];
+            [self applyClearBackgroundToScrollViews:_view];
+        } else {
+            _view.backgroundColor = [self hexStringToColor:hexColor];
+        }
         _view.pageShadowsEnabled = false;
     }
 
