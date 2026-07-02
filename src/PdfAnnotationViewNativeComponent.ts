@@ -43,6 +43,14 @@ export interface NativeProps extends ViewProps {
     pdfUrl?: string;
     canvasMode?: boolean;
     drawWithFinger?: boolean;
+    /**
+     * iOS only. Keeps PencilKit markup active even while the tool picker is
+     * hidden, so the Apple Pencil can always draw (with palm rejection), and
+     * restricts the PDF view's internal gestures to pencil touches so finger
+     * input passes through to ancestor views. Also disables tap-edge page
+     * navigation.
+     */
+    iosPencilAlwaysDraws?: boolean;
     thumbnailMode?: boolean;
     pageNavigationEnabled?: boolean;
     annotationFile?: string;

@@ -37,6 +37,37 @@ using namespace facebook::react;
     [_pencilKitCoordinator applyDrawingPolicyToVisibleCanvases];
 }
 
+- (void)applyAllowedTouchTypes:(NSArray<NSNumber *> *)types toView:(UIView *)view {
+    for (UIGestureRecognizer *recognizer in view.gestureRecognizers) {
+        recognizer.allowedTouchTypes = types;
+    }
+    for (UIView *subview in view.subviews) {
+        [self applyAllowedTouchTypes:types toView:subview];
+    }
+}
+
+// With iosPencilAlwaysDraws set (and the tool picker hidden), only pencil
+// touches may drive the PDF view's internal gestures; finger touches fall
+// through to ancestor views (e.g. React Native pan/zoom handlers).
+- (void)refreshPencilTouchFiltering {
+    const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
+    if (!props.iosPencilAlwaysDraws || props.canvasMode) {
+        return;
+    }
+    BOOL pencilOnly = !props.iosToolPickerVisible;
+    NSArray<NSNumber *> *types = pencilOnly
+        ? @[@(UITouchTypePencil)]
+        : @[@(UITouchTypeDirect), @(UITouchTypeIndirect), @(UITouchTypePencil), @(UITouchTypeIndirectPointer)];
+    [self applyAllowedTouchTypes:types toView:_view];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    // PDFKit creates gesture recognizers lazily (page view controller, per-page
+    // overlays), so re-apply the filter whenever layout runs.
+    [self refreshPencilTouchFiltering];
+}
+
 - (void)updateCanvasToolPickerVisibility:(BOOL)visible {
     dispatch_async(dispatch_get_main_queue(), ^{
         MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
@@ -215,7 +246,9 @@ using namespace facebook::react;
     }
 
     NSInteger delta = 0;
-    bool pageNavigationEnabled = props.pageNavigationEnabled;
+    // Tap-edge page turning is disabled in pencil-always-draws mode: a pencil
+    // tap near the page edge is drawing input, not navigation.
+    bool pageNavigationEnabled = props.pageNavigationEnabled && !props.iosPencilAlwaysDraws;
     if (pageNavigationEnabled && touchLocation.x < screenWidth * 0.25 && !addLink) {
         delta = -1;
     } else if (pageNavigationEnabled && touchLocation.x > screenWidth * 0.75 && !addLink) {
@@ -296,6 +329,10 @@ using namespace facebook::react;
        std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)
         ->onPageChange(event);
      }
+    // New pages bring freshly created overlay canvases and recognizers.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self refreshPencilTouchFiltering];
+    });
 }
 
 - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &)oldProps
@@ -366,11 +403,26 @@ using namespace facebook::react;
         if (newViewProps.canvasMode) {
             [self updateCanvasToolPickerVisibility:newViewProps.iosToolPickerVisible];
         } else if (@available(iOS 16.0, *)) {
-            [_view setInMarkupMode:newViewProps.iosToolPickerVisible];
+            // In pencil-always-draws mode markup stays on so the pencil can
+            // draw with the tool picker hidden.
+            [_view setInMarkupMode:(newViewProps.iosToolPickerVisible || newViewProps.iosPencilAlwaysDraws)];
             [_pencilKitCoordinator setToolPickerVisible:_view.currentPage isVisible:newViewProps.iosToolPickerVisible];
         } else {
             [_pencilKitCoordinator setToolPickerVisible:_view.currentPage isVisible:newViewProps.iosToolPickerVisible];
         }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self refreshPencilTouchFiltering];
+        });
+    }
+    if (oldViewProps.iosPencilAlwaysDraws != newViewProps.iosPencilAlwaysDraws) {
+        if (!newViewProps.canvasMode) {
+            if (@available(iOS 16.0, *)) {
+                [_view setInMarkupMode:(newViewProps.iosToolPickerVisible || newViewProps.iosPencilAlwaysDraws)];
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self refreshPencilTouchFiltering];
+        });
     }
     if (oldViewProps.annotationFile != newViewProps.annotationFile) {
         NSString * filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];

@@ -45,6 +45,10 @@ class PdfAnnotationViewManager : SimpleViewManager<PdfAnnotationView>(),
     // NOOP, iOS-only for now.
   }
 
+  override fun setIosPencilAlwaysDraws(view: PdfAnnotationView?, value: Boolean) {
+    // NOOP, iOS-only.
+  }
+
   override fun setThumbnailMode(view: PdfAnnotationView?, value: Boolean) {
     view?.viewModel?.updateThumbnailMode(value)
   }
