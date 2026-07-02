@@ -19,6 +19,7 @@ using namespace facebook::react;
     PencilKitCoordinator * _pencilKitCoordinator;
     RoundedTriangleAnnotation *firstLinkAnnotation;
     NSUInteger firstLinkPageIndex;
+    NSUInteger _thumbnailGeneration;
 }
 
 - (PKCanvasViewDrawingPolicy)resolvedDrawingPolicyForToolPickerVisible:(BOOL)toolPickerVisible {
@@ -112,6 +113,7 @@ using namespace facebook::react;
         _canvasView = [[PKCanvasView alloc] initWithFrame:frame];
         _canvasView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
         _canvasView.backgroundColor = [UIColor clearColor];
+        _canvasView.opaque = NO;
         _canvasView.delegate = self;
         _pencilKitCoordinator = [[PencilKitCoordinator alloc] init];
         _pencilKitCoordinator.delegate = self;
@@ -150,6 +152,24 @@ using namespace facebook::react;
     if (props.canvasMode) {
         [self updateCanvasToolPickerVisibility:props.iosToolPickerVisible];
     }
+}
+
+// Fabric recycles native views across mounts; without a full reset a recycled
+// view leaks the previous document, ink, and markup state into whatever
+// mounts next (e.g. a game with no PDF showing the prior game's board).
+- (void)prepareForRecycle
+{
+    [super prepareForRecycle];
+    _thumbnailGeneration++; // invalidate any pending thumbnail snapshot
+    _view.document = nil;
+    [self setCanvasDrawingQuietly:[[PKDrawing alloc] init]];
+    if (@available(iOS 16.0, *)) {
+        [_view setInMarkupMode:NO];
+    }
+    MyPDFKitToolPickerModel *model = [MyPDFKitToolPickerModel sharedInstance];
+    [model.toolPicker removeObserver:_canvasView];
+    self.contentView = _view;
+    firstLinkAnnotation = nil;
 }
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gestureRecognizer {
@@ -318,19 +338,28 @@ using namespace facebook::react;
     [data writeToFile:filePath atomically:YES];
 }
 
+// Programmatic drawing assignment fires canvasViewDrawingDidChange, and with
+// autoSave that echo writes the just-assigned (possibly empty) drawing back
+// over the file — erasing real ink. Detach the delegate around assignments.
+- (void)setCanvasDrawingQuietly:(PKDrawing *)drawing {
+    _canvasView.delegate = nil;
+    _canvasView.drawing = drawing;
+    _canvasView.delegate = self;
+}
+
 - (void)loadCanvasDrawingFromDisk:(NSString *)filePath {
     if ([filePath hasPrefix:@"file://"]) {
         filePath = [filePath stringByReplacingOccurrencesOfString:@"file://" withString:@""];
     }
     NSData *data = [NSData dataWithContentsOfFile:filePath];
     if (!data) {
-        _canvasView.drawing = [[PKDrawing alloc] init];
+        [self setCanvasDrawingQuietly:[[PKDrawing alloc] init]];
         return;
     }
     NSError *error = nil;
     PKDrawing *drawing = [[PKDrawing alloc] initWithData:data error:&error];
     if (!error && drawing) {
-        _canvasView.drawing = drawing;
+        [self setCanvasDrawingQuietly:drawing];
     }
 }
 
@@ -475,6 +504,34 @@ using namespace facebook::react;
         _view.pageShadowsEnabled = false;
     }
 
+    // --- Recycled-view invariants ---------------------------------------
+    // Diff-based handlers above miss stale native state when a recycled
+    // view's remembered props happen to match the new ones. Enforce the
+    // final configuration unconditionally: a canvas view never shows a PDF
+    // document, and a PDF view with a URL always has its document loaded.
+    if (newViewProps.canvasMode) {
+        if (_view.document != nil) {
+            _view.document = nil;
+        }
+        if (self.contentView != _canvasView) {
+            [self updateCanvasMode:true];
+        }
+    } else if (!newViewProps.pdfUrl.empty() && _view.document == nil) {
+        NSString * pdfUrl = [[NSString alloc] initWithUTF8String: newViewProps.pdfUrl.c_str()];
+        if ([pdfUrl hasPrefix:@"file://"]) {
+            pdfUrl = [pdfUrl stringByReplacingOccurrencesOfString:@"file://" withString:@""];
+        }
+        pdfUrl = [pdfUrl stringByRemovingPercentEncoding];
+        NSURL* url = [NSURL fileURLWithPath:pdfUrl isDirectory:NO];
+        _view.document = [[MyPDFDocument alloc] initWithURL:url];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PdfAnnotationViewEventEmitter::OnPageCount result = PdfAnnotationViewEventEmitter::OnPageCount{(int)self->_view.document.pageCount};
+            if (self->_eventEmitter != nullptr) {
+                std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(self->_eventEmitter)->onPageCount(result);
+            }
+        });
+    }
+
     [super updateProps:props oldProps:oldProps];
 }
 
@@ -493,8 +550,16 @@ using namespace facebook::react;
 }
 
 - (void)updateThumbnailMode:(bool) isThumbnail {
+    // The generation guard keeps a pending async snapshot from stamping a
+    // stale PDF image onto a view that has since been recycled or
+    // reconfigured (e.g. reused as another game's ink canvas).
+    NSUInteger generation = ++_thumbnailGeneration;
     if (isThumbnail) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self->_thumbnailGeneration) return;
+            if (!self->_props) return;
+            const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(self->_props);
+            if (!props.thumbnailMode) return;
             PDFDocument *document = self->_view.document;
             if (document) {
                 PDFPage *firstPage = [document pageAtIndex:0];
