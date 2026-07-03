@@ -20,6 +20,11 @@ using namespace facebook::react;
     RoundedTriangleAnnotation *firstLinkAnnotation;
     NSUInteger firstLinkPageIndex;
     NSUInteger _thumbnailGeneration;
+    // The annotation file currently loaded into _canvasView. Diff-based
+    // annotationFile handling misses reloads when a recycled view's
+    // remembered props equal the new ones (same game reopened), leaving the
+    // canvas empty while ink sits on disk.
+    NSString *_loadedCanvasAnnotationFile;
 }
 
 - (PKCanvasViewDrawingPolicy)resolvedDrawingPolicyForToolPickerVisible:(BOOL)toolPickerVisible {
@@ -162,6 +167,7 @@ using namespace facebook::react;
     [super prepareForRecycle];
     _thumbnailGeneration++; // invalidate any pending thumbnail snapshot
     _view.document = nil;
+    _loadedCanvasAnnotationFile = nil;
     [self setCanvasDrawingQuietly:[[PKDrawing alloc] init]];
     if (@available(iOS 16.0, *)) {
         [_view setInMarkupMode:NO];
@@ -482,6 +488,7 @@ using namespace facebook::react;
         NSString * filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];
         if (newViewProps.canvasMode) {
             [self loadCanvasDrawingFromDisk:filePath];
+            _loadedCanvasAnnotationFile = filePath;
         } else {
             [(MyPDFDocument* )_view.document loadDrawingsFromDisk:filePath];
             [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
@@ -515,6 +522,16 @@ using namespace facebook::react;
         }
         if (self.contentView != _canvasView) {
             [self updateCanvasMode:true];
+        }
+        // Reload ink whenever the canvas doesn't hold this file's drawing —
+        // covers first mount and recycled views whose remembered props match
+        // the new ones (where the diff above never fires).
+        if (!newViewProps.annotationFile.empty()) {
+            NSString *filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];
+            if (![filePath isEqualToString:_loadedCanvasAnnotationFile]) {
+                [self loadCanvasDrawingFromDisk:filePath];
+                _loadedCanvasAnnotationFile = filePath;
+            }
         }
     } else if (!newViewProps.pdfUrl.empty() && _view.document == nil) {
         NSString * pdfUrl = [[NSString alloc] initWithUTF8String: newViewProps.pdfUrl.c_str()];
