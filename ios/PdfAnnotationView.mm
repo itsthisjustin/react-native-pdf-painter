@@ -159,6 +159,23 @@ using namespace facebook::react;
     }
 }
 
+// PDFKit's PDFPageBackgroundManager renders page images for the current
+// document on a private queue. If the document deallocates while a draw is
+// in flight the render comes back nil and PDFDocumentViewController raises
+// on that queue — an uncatchable SIGABRT (seen in TestFlight build 13,
+// recieveBackgroundImage:atBackgroundQuality:forPage: during tab switches).
+// Park the outgoing document for a grace period before any swap so
+// in-flight draws complete against a live document.
+- (void)retireCurrentDocument
+{
+    PDFDocument *outgoing = _view.document;
+    if (outgoing == nil) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        (void)outgoing; // strong capture holds the document until now
+    });
+}
+
 // Fabric recycles native views across mounts; without a full reset a recycled
 // view leaks the previous document, ink, and markup state into whatever
 // mounts next (e.g. a game with no PDF showing the prior game's board).
@@ -166,6 +183,7 @@ using namespace facebook::react;
 {
     [super prepareForRecycle];
     _thumbnailGeneration++; // invalidate any pending thumbnail snapshot
+    [self retireCurrentDocument];
     _view.document = nil;
     _loadedCanvasAnnotationFile = nil;
     [self setCanvasDrawingQuietly:[[PKDrawing alloc] init]];
@@ -394,6 +412,7 @@ using namespace facebook::react;
         }
         pdfUrl = [pdfUrl stringByRemovingPercentEncoding];
         NSURL* url = [NSURL fileURLWithPath:pdfUrl isDirectory:NO];
+        [self retireCurrentDocument];
         _view.document = [[MyPDFDocument alloc] initWithURL:url];
         dispatch_async(dispatch_get_main_queue(), ^{
             PdfAnnotationViewEventEmitter::OnPageCount result = PdfAnnotationViewEventEmitter::OnPageCount{(int)self->_view.document.pageCount};
@@ -526,6 +545,7 @@ using namespace facebook::react;
         : UIUserInterfaceStyleLight;
     if (newViewProps.canvasMode) {
         if (_view.document != nil) {
+            [self retireCurrentDocument];
             _view.document = nil;
         }
         if (self.contentView != _canvasView) {
