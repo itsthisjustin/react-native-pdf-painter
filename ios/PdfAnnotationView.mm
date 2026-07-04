@@ -494,6 +494,11 @@ using namespace facebook::react;
             [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
         }
     }
+    if (oldViewProps.iosDarkInk != newViewProps.iosDarkInk) {
+        _canvasView.overrideUserInterfaceStyle = newViewProps.iosDarkInk
+            ? UIUserInterfaceStyleDark
+            : UIUserInterfaceStyleLight;
+    }
     if (oldViewProps.thumbnailMode != newViewProps.thumbnailMode) {
         [self updateThumbnailMode:newViewProps.thumbnailMode];
     }
@@ -516,6 +521,9 @@ using namespace facebook::react;
     // view's remembered props happen to match the new ones. Enforce the
     // final configuration unconditionally: a canvas view never shows a PDF
     // document, and a PDF view with a URL always has its document loaded.
+    _canvasView.overrideUserInterfaceStyle = newViewProps.iosDarkInk
+        ? UIUserInterfaceStyleDark
+        : UIUserInterfaceStyleLight;
     if (newViewProps.canvasMode) {
         if (_view.document != nil) {
             _view.document = nil;

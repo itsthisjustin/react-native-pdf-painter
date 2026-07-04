@@ -59,6 +59,13 @@ export interface NativeProps extends ViewProps {
      * itself while the pencil draws.
      */
     iosFingerPassthrough?: boolean;
+    /**
+     * iOS only. Renders the canvas in dark appearance so PencilKit's dynamic
+     * ink inverts (black strokes render white). Use for drawing surfaces that
+     * follow the app theme — NOT for PDFs/images where ink should stay
+     * literal (the default light appearance).
+     */
+    iosDarkInk?: boolean;
     thumbnailMode?: boolean;
     pageNavigationEnabled?: boolean;
     annotationFile?: string;
