@@ -47,10 +47,16 @@
         }
     }
     
-    // If there is an existing drawing, apply it to the canvas
+    // If there is an existing drawing, apply it to the canvas. PencilKit
+    // fires canvasViewDrawingDidChange even for programmatic assignment,
+    // which triggered an autosave mid page-scroll (and crashed there on
+    // PDFs with native link annotations) — detach the delegate around it.
     MyPDFPage *myPDFPage = (MyPDFPage *)page;
     if (myPDFPage.drawing) {
+        id<PKCanvasViewDelegate> savedDelegate = resultView.delegate;
+        resultView.delegate = nil;
         resultView.drawing = myPDFPage.drawing;
+        resultView.delegate = savedDelegate;
     }
     
     [self setDrawingTool:myPDFPage brushSettings:self.currentBrushSettings];

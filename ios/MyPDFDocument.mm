@@ -25,20 +25,29 @@
             pageData[@"drawing"] = drawingData;
         }
         
-        // Speichern der Link-Annotationen
+        // Speichern der Link-Annotationen. Only the fork's own link
+        // annotations are persisted: documents ship with native link
+        // annotations too (e.g. a rulebook's table of contents), whose
+        // GoTo actions match the class check but have no backgroundColor —
+        // CGColorGetComponents(nil) returned NULL and crashed on deref.
         NSMutableArray *linkAnnotations = [NSMutableArray array];
-        for (RoundedTriangleAnnotation *annotation in page.annotations) {
-            PDFActionGoTo *goToAction = (PDFActionGoTo *)annotation.action;
-            if ([goToAction isKindOfClass:[PDFActionGoTo class]]) {
-                NSUInteger targetPageIndex = [self indexForPage:goToAction.destination.page];
-                const CGFloat *components = CGColorGetComponents(annotation.backgroundColor.CGColor);
-                NSDictionary *linkData = @{
-                    @"bounds": NSStringFromCGRect(annotation.bounds),
-                    @"targetPage": @(targetPageIndex),
-                    @"color": @[@(components[0]), @(components[1]), @(components[2]), @(CGColorGetAlpha(annotation.backgroundColor.CGColor))]
-                };
-                [linkAnnotations addObject:linkData];
-            }
+        for (PDFAnnotation *annotation in page.annotations) {
+            if (![annotation isKindOfClass:[RoundedTriangleAnnotation class]]) continue;
+            RoundedTriangleAnnotation *linkAnnotation = (RoundedTriangleAnnotation *)annotation;
+            PDFActionGoTo *goToAction = (PDFActionGoTo *)linkAnnotation.action;
+            if (![goToAction isKindOfClass:[PDFActionGoTo class]] || goToAction.destination.page == nil) continue;
+            NSUInteger targetPageIndex = [self indexForPage:goToAction.destination.page];
+            CGColorRef cgColor = linkAnnotation.backgroundColor.CGColor;
+            const CGFloat *components = cgColor ? CGColorGetComponents(cgColor) : NULL;
+            NSArray *color = (components && CGColorGetNumberOfComponents(cgColor) >= 3)
+                ? @[@(components[0]), @(components[1]), @(components[2]), @(CGColorGetAlpha(cgColor))]
+                : @[@0, @0, @0, @1];
+            NSDictionary *linkData = @{
+                @"bounds": NSStringFromCGRect(linkAnnotation.bounds),
+                @"targetPage": @(targetPageIndex),
+                @"color": color
+            };
+            [linkAnnotations addObject:linkData];
         }
 
         if (linkAnnotations.count > 0) {
