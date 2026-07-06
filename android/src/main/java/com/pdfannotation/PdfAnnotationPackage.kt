@@ -14,6 +14,6 @@ class PdfAnnotationViewPackage : ReactPackage {
   }
 
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return emptyList()
+    return listOf(PdfPageRasterizerModule(reactContext))
   }
 }

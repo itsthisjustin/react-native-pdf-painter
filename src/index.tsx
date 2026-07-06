@@ -28,8 +28,9 @@ import {
 export * from './PdfAnnotationViewNativeComponent';
 
 /**
- * iOS only. Renders every page of a PDF to a PNG file in outputDir (longest
- * side = maxDimension pixels) and resolves with the ordered file:// URIs.
+ * Renders every page of a PDF to a PNG file in outputDir (longest side =
+ * maxDimension pixels) and resolves with the ordered file:// URIs.
+ * Backed by PDFKit on iOS and android.graphics.pdf.PdfRenderer on Android.
  */
 export async function renderPdfToImages(
     pdfPath: string,
