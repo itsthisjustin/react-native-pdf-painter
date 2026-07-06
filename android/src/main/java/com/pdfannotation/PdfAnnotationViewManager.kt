@@ -85,6 +85,14 @@ class PdfAnnotationViewManager : SimpleViewManager<PdfAnnotationView>(),
     // NOOP, iOS only
   }
 
+  override fun setIosFingerPassthrough(view: PdfAnnotationView?, value: Boolean) {
+    // NOOP, iOS only
+  }
+
+  override fun setIosDarkInk(view: PdfAnnotationView?, value: Boolean) {
+    // NOOP, iOS only
+  }
+
   override fun undo(view: PdfAnnotationView?) {
     view?.viewModel?.undo();
   }

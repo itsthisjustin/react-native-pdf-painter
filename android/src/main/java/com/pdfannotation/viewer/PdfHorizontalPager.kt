@@ -125,7 +125,7 @@ fun PdfHorizontalPager(viewModel: PdfAnnotationViewModel) {
                 viewModel = strokes,
                 onChangePage = { pageDelta ->
                     if (!pageNavigationEnabled) {
-                        return
+                        return@PdfPage
                     }
                     if (viewModel.links.canCreateLinks) {
                         return@PdfPage
