@@ -1,10 +1,12 @@
 package com.pdfannotation.viewer
 
 import android.graphics.Matrix
+import android.view.MotionEvent
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,6 +20,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
@@ -42,6 +47,41 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
         }
     }
     var size by remember { mutableStateOf(IntSize.Zero) }
+
+    // The canvas can be laid out far larger than the screen (a whole game table).
+    // InProgressStrokesView allocates its low-latency front buffer proportional to
+    // its size, and surfaces beyond the GPU's max surface area fall off the fast
+    // path entirely — so the live-stroke view is capped at one screen and slid
+    // under the pen at each stroke start instead of covering the whole canvas.
+    // Finished strokes stay in canvas coordinates: motionEventToViewTransform only
+    // affects wet-ink rendering, never the coordinates handed to onStrokesFinished.
+    val displayMetrics = LocalContext.current.resources.displayMetrics
+    val windowSize = remember(size) {
+        IntSize(
+            if (size.width > 0) minOf(size.width, displayMetrics.widthPixels) else displayMetrics.widthPixels,
+            if (size.height > 0) minOf(size.height, displayMetrics.heightPixels) else displayMetrics.heightPixels,
+        )
+    }
+    val windowTransform = remember { Matrix() }
+
+    fun repositionInkWindow(x: Float, y: Float) {
+        // Moving the window re-renders any wet ink still in the view with the new
+        // transform, making it jump on screen — only slide while the view is idle
+        // (no active stroke, nothing finished but not yet handed off to InkCanvas).
+        if (inProgressStrokesView.hasUnfinishedStrokes() ||
+            inProgressStrokesView.getFinishedStrokes().isNotEmpty()
+        ) {
+            return
+        }
+        val maxX = maxOf(0f, (size.width - windowSize.width).toFloat())
+        val maxY = maxOf(0f, (size.height - windowSize.height).toFloat())
+        val wx = (x - windowSize.width / 2f).coerceIn(0f, maxX)
+        val wy = (y - windowSize.height / 2f).coerceIn(0f, maxY)
+        inProgressStrokesView.translationX = wx
+        inProgressStrokesView.translationY = wy
+        windowTransform.setTranslate(-wx, -wy)
+        inProgressStrokesView.motionEventToViewTransform = windowTransform
+    }
 
     val strokeAuthoringState: StrokeAuthoringState = rememberStrokeAuthoringState(
         inProgressStrokesView,
@@ -80,23 +120,30 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInteropFilter { event ->
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                        repositionInkWindow(event.x, event.y)
+                    }
                     strokeAuthoringTouchListener?.onTouch(inProgressStrokesView, event) ?: false
                 },
             strokeAuthoringState = strokeAuthoringState,
         )
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.size(
+                with(LocalDensity.current) {
+                    DpSize(windowSize.width.toDp(), windowSize.height.toDp())
+                }
+            ),
             factory = {
                 inProgressStrokesView.apply {
                     layoutParams = FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        windowSize.width,
+                        windowSize.height,
                     )
-                    motionEventToViewTransform = transformMatrix
+                    motionEventToViewTransform = windowTransform
                 }
             },
             update = { canvasView ->
-                canvasView.motionEventToViewTransform = transformMatrix
+                canvasView.motionEventToViewTransform = windowTransform
                 canvasView.invalidate()
             }
         )
