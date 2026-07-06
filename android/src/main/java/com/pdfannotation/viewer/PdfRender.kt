@@ -61,7 +61,10 @@ class PdfRender(
         val backgroundColor: Int?
     ) {
         companion object {
-            const val MAX_IMAGE_SIZE = 4096
+            // 4096 allowed ~67MB ARGB bitmaps per page; a handful of warm
+            // pages across several viewers exceeded budget-device memory.
+            // 2048 stays sharper than tablet screens while quartering cost.
+            const val MAX_IMAGE_SIZE = 2048
         }
 
         val hash get() = fileDescriptor.hashCode() + index
