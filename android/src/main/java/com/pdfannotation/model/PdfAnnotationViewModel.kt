@@ -36,6 +36,7 @@ class PdfAnnotationViewModel(
     private val _annotationFile = MutableStateFlow<File?>(null)
     private var _autoSave = false
     private val _brushSettings = MutableStateFlow<BrushSettings?>(null)
+    private val _drawWithFinger = MutableStateFlow(true)
     private val _strokes = MutableStateFlow(makeStrokes())
     private val _currentPage = MutableStateFlow(0)
     private var _pageCount = 0
@@ -51,6 +52,7 @@ class PdfAnnotationViewModel(
     val pageNavigationEnabled: StateFlow<Boolean> get() = _pageNavigationEnabled
     val annotationFile: StateFlow<File?> get() = _annotationFile
     val brushSettings: StateFlow<BrushSettings?> get() = _brushSettings
+    val drawWithFinger: StateFlow<Boolean> get() = _drawWithFinger
     val strokes: StateFlow<Strokes> get() = _strokes
     val currentPage: StateFlow<Int> get() = _currentPage
     val links: Links = Links(
@@ -68,6 +70,10 @@ class PdfAnnotationViewModel(
     fun updatePdfFile(newPdf: String?) {
         _pdfFile.value = constructFile(newPdf)
         loadAnnotations()
+    }
+
+    fun updateDrawWithFinger(newValue: Boolean) {
+        _drawWithFinger.value = newValue
     }
 
     fun updateCanvasMode(newMode: Boolean) {

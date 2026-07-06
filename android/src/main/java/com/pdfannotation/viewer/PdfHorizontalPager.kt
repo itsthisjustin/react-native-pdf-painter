@@ -47,6 +47,7 @@ fun PdfHorizontalPager(viewModel: PdfAnnotationViewModel) {
     val links by viewModel.links.links.collectAsState()
     val beyondViewportPageCount by viewModel.beyondViewportPageCount.collectAsState()
     val pageNavigationEnabled by viewModel.pageNavigationEnabled.collectAsState()
+    val drawWithFinger by viewModel.drawWithFinger.collectAsState()
 
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
@@ -122,6 +123,7 @@ fun PdfHorizontalPager(viewModel: PdfAnnotationViewModel) {
                 page = renderer?.let { it.pageLists[page] },
                 backgroundColor = backgroundColor,
                 brushSettings = brushSettings,
+                drawWithFinger = drawWithFinger,
                 viewModel = strokes,
                 onChangePage = { pageDelta ->
                     if (!pageNavigationEnabled) {

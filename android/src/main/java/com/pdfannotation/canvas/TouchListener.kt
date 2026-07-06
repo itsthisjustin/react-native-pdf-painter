@@ -21,6 +21,7 @@ class StrokeAuthoringTouchListener(
     private val strokeAuthoringState: StrokeAuthoringState,
     private val brush: Brush,
     private val isEraser: Boolean,
+    private val drawWithFinger: Boolean = true,
 ) : View.OnTouchListener {
 
     private var eraserStroke: MutableStrokeInputBatch = MutableStrokeInputBatch()
@@ -28,6 +29,11 @@ class StrokeAuthoringTouchListener(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouch(view: View?, event: MotionEvent): Boolean {
         if (view == null) return false
+        // When finger drawing is off, only stylus input draws; finger touches
+        // fall through so the app underneath keeps its interactions.
+        if (!drawWithFinger && event.getToolType(event.actionIndex) != MotionEvent.TOOL_TYPE_STYLUS) {
+            return false
+        }
 
         val predictedEvent = strokeAuthoringState.motionEventPredictor.run {
             record(event)
@@ -188,8 +194,9 @@ fun rememberStrokeAuthoringTouchListener(
     strokeAuthoringState: StrokeAuthoringState,
     brushSettings: BrushSettings?,
     transformMatrix: Matrix = Matrix.IDENTITY_MATRIX,
+    drawWithFinger: Boolean = true,
 ): StrokeAuthoringTouchListener? =
-    remember(brushSettings) {
+    remember(brushSettings, drawWithFinger) {
         brushSettings?.let {
             val matrixValues = FloatArray(9)
             transformMatrix.getValues(matrixValues)
@@ -197,6 +204,7 @@ fun rememberStrokeAuthoringTouchListener(
             StrokeAuthoringTouchListener(
                 strokeAuthoringState = strokeAuthoringState,
                 isEraser = brushSettings.isEraser,
+                drawWithFinger = drawWithFinger,
                 brush = Brush.createWithColorIntArgb(
                     family = it.family,
                     colorIntArgb = it.color.toArgb(),

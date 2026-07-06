@@ -42,7 +42,7 @@ class PdfAnnotationViewManager : SimpleViewManager<PdfAnnotationView>(),
   }
 
   override fun setDrawWithFinger(view: PdfAnnotationView?, value: Boolean) {
-    // NOOP, iOS-only for now.
+    view?.viewModel?.updateDrawWithFinger(value)
   }
 
   override fun setIosPencilAlwaysDraws(view: PdfAnnotationView?, value: Boolean) {

@@ -32,6 +32,7 @@ import com.pdfannotation.model.PdfAnnotationViewModel
 @Composable
 fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
     val brushSettings by viewModel.brushSettings.collectAsState()
+    val drawWithFinger by viewModel.drawWithFinger.collectAsState()
     val strokes by viewModel.strokes.collectAsState()
     val backgroundColor by viewModel.backgroundColor.collectAsState()
     val inProgressStrokesView: InProgressStrokesView = rememberInProgressStrokesView()
@@ -54,6 +55,7 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
         strokeAuthoringState = strokeAuthoringState,
         brushSettings = brushSettings,
         transformMatrix = transformMatrix,
+        drawWithFinger = drawWithFinger,
     )
 
     LaunchedEffect(strokes, size.width, size.height) {

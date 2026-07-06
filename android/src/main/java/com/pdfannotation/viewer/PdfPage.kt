@@ -43,6 +43,7 @@ fun PdfPage(
     page: PdfRender.Page?,
     backgroundColor: Int?,
     brushSettings: BrushSettings?,
+    drawWithFinger: Boolean = true,
     viewModel: Strokes,
     links: Set<Link>,
     onChangePage: (Int) -> Unit = {},
@@ -96,6 +97,7 @@ fun PdfPage(
             strokeAuthoringState = strokeAuthoringState,
             brushSettings = brushSettings,
             transformMatrix = transformMatrix,
+            drawWithFinger = drawWithFinger,
         )
 
         // Restore strokes from ViewModel
