@@ -42,7 +42,12 @@ class StrokeAuthoringTouchListener(
             record(event)
             predict()
         }
-        if (isEraser) {
+        // S Pen and similar pens report TOOL_TYPE_ERASER when inverted or
+        // used with the side button held — honor that as the eraser
+        // regardless of the selected tool, like a physical pencil's eraser.
+        val useEraser = isEraser ||
+            event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER
+        if (useEraser) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 eraserStroke = MutableStrokeInputBatch()
                 return true
