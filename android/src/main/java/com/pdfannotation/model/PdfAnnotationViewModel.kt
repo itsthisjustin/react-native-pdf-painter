@@ -217,6 +217,9 @@ class PdfAnnotationViewModel(
     }
 
     private fun parseColor(hex: String?): Color {
+        // Matches iOS: "transparent" is a supported background (the app draws
+        // the PDF over its own table surface).
+        if (hex.equals("transparent", ignoreCase = true)) return Color.Transparent
         val color = (hex ?: "#FF0000").removePrefix("#")
         return when (color.length) {
             6 -> Color(
@@ -230,7 +233,9 @@ class PdfAnnotationViewModel(
                 green = Integer.parseInt(color.substring(4, 6), 16) / 255f,
                 blue = Integer.parseInt(color.substring(6, 8), 16) / 255f
             )
-            else -> throw IllegalArgumentException("Invalid color format")
+            // Unknown formats fall back to transparent rather than throwing:
+            // a bad color string must not take down the whole viewer.
+            else -> Color.Transparent
         }
     }
 }
