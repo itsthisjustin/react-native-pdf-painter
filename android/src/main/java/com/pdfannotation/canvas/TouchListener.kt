@@ -29,9 +29,12 @@ class StrokeAuthoringTouchListener(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouch(view: View?, event: MotionEvent): Boolean {
         if (view == null) return false
-        // When finger drawing is off, only stylus input draws; finger touches
-        // fall through so the app underneath keeps its interactions.
-        if (!drawWithFinger && event.getToolType(event.actionIndex) != MotionEvent.TOOL_TYPE_STYLUS) {
+        // When finger drawing is off, exclude FINGER specifically rather than
+        // requiring STYLUS: pens report other tool types in the wild (Samsung
+        // S Pen with the side button held = TOOL_TYPE_ERASER, some ROMs =
+        // TOOL_TYPE_UNKNOWN, DeX pointer = TOOL_TYPE_MOUSE) and a
+        // require-stylus gate silently blocked all of them.
+        if (!drawWithFinger && event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_FINGER) {
             return false
         }
 
