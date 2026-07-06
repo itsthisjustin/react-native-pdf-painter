@@ -43,9 +43,9 @@ fun InkCanvas(
 
 
 @Composable
-fun rememberInProgressStrokesView(): InProgressStrokesView {
+fun rememberInProgressStrokesView(vararg keys: Any?): InProgressStrokesView {
     val context = LocalContext.current
-    return remember {
+    return remember(*keys) {
         InProgressStrokesView(context).apply {
             motionEventToViewTransform = Matrix()
             visibility = android.view.View.VISIBLE

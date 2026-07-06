@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -20,6 +21,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
@@ -40,7 +42,14 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
     val drawWithFinger by viewModel.drawWithFinger.collectAsState()
     val strokes by viewModel.strokes.collectAsState()
     val backgroundColor by viewModel.backgroundColor.collectAsState()
-    val inProgressStrokesView: InProgressStrokesView = rememberInProgressStrokesView()
+    // Recreate the live-stroke view on rotation: its front buffer is created
+    // pre-rotated with the display transform hint captured at surface setup,
+    // and a fixed-size view never gets the surface event that would refresh
+    // it — after rotating, wet ink renders with the stale transform (appears
+    // dead) until the device is rotated back. A fresh view attaches after the
+    // configuration change and picks up the current hint.
+    val configuration = LocalConfiguration.current
+    val inProgressStrokesView: InProgressStrokesView = rememberInProgressStrokesView(configuration.orientation)
     val transformMatrix = remember {
         Matrix().apply {
             preScale(1f, 1f)
@@ -56,7 +65,7 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
     // Finished strokes stay in canvas coordinates: motionEventToViewTransform only
     // affects wet-ink rendering, never the coordinates handed to onStrokesFinished.
     val displayMetrics = LocalContext.current.resources.displayMetrics
-    val windowSize = remember(size) {
+    val windowSize = remember(size, configuration) {
         IntSize(
             if (size.width > 0) minOf(size.width, displayMetrics.widthPixels) else displayMetrics.widthPixels,
             if (size.height > 0) minOf(size.height, displayMetrics.heightPixels) else displayMetrics.heightPixels,
@@ -98,7 +107,9 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
         drawWithFinger = drawWithFinger,
     )
 
-    LaunchedEffect(strokes, size.width, size.height) {
+    // strokeAuthoringState is a key so a state recreated on rotation gets the
+    // committed strokes reloaded into it instead of starting out empty.
+    LaunchedEffect(strokeAuthoringState, strokes, size.width, size.height) {
         strokeAuthoringState.finishedStrokes.value = strokes.getStrokes(
             0,
             Size(size.width.toFloat(), size.height.toFloat())
@@ -127,25 +138,29 @@ fun CanvasAnnotationView(viewModel: PdfAnnotationViewModel) {
                 },
             strokeAuthoringState = strokeAuthoringState,
         )
-        AndroidView(
-            modifier = Modifier.size(
-                with(LocalDensity.current) {
-                    DpSize(windowSize.width.toDp(), windowSize.height.toDp())
+        // key() forces the AndroidView to rebuild around the fresh view
+        // instance after rotation — factory does not rerun on its own.
+        key(inProgressStrokesView) {
+            AndroidView(
+                modifier = Modifier.size(
+                    with(LocalDensity.current) {
+                        DpSize(windowSize.width.toDp(), windowSize.height.toDp())
+                    }
+                ),
+                factory = {
+                    inProgressStrokesView.apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            windowSize.width,
+                            windowSize.height,
+                        )
+                        motionEventToViewTransform = windowTransform
+                    }
+                },
+                update = { canvasView ->
+                    canvasView.motionEventToViewTransform = windowTransform
+                    canvasView.invalidate()
                 }
-            ),
-            factory = {
-                inProgressStrokesView.apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        windowSize.width,
-                        windowSize.height,
-                    )
-                    motionEventToViewTransform = windowTransform
-                }
-            },
-            update = { canvasView ->
-                canvasView.motionEventToViewTransform = windowTransform
-                canvasView.invalidate()
-            }
-        )
+            )
+        }
     }
 }

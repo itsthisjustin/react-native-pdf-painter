@@ -204,7 +204,10 @@ fun rememberStrokeAuthoringTouchListener(
     transformMatrix: Matrix = Matrix.IDENTITY_MATRIX,
     drawWithFinger: Boolean = true,
 ): StrokeAuthoringTouchListener? =
-    remember(brushSettings, drawWithFinger) {
+    // strokeAuthoringState must be a key: it is recreated when its
+    // InProgressStrokesView is (e.g. on rotation), and a listener holding the
+    // old state would keep feeding strokes to a detached view.
+    remember(strokeAuthoringState, brushSettings, drawWithFinger) {
         brushSettings?.let {
             val matrixValues = FloatArray(9)
             transformMatrix.getValues(matrixValues)
