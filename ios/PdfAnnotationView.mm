@@ -27,6 +27,16 @@ using namespace facebook::react;
     NSString *_loadedCanvasAnnotationFile;
 }
 
+// Never recycle: Fabric deletes-then-creates in one commit and hands the new
+// instance the same native view (LIFO pool). Its PencilKitCoordinator kept the
+// previous tab's ink canvases, so strokes leaked between tabs, and with
+// unchanged props the new tab's ink was never reloaded ("pages deleted").
+// A fresh view per mount loads its own document and ink.
++ (BOOL)shouldBeRecycled
+{
+    return NO;
+}
+
 - (PKCanvasViewDrawingPolicy)resolvedDrawingPolicyForToolPickerVisible:(BOOL)toolPickerVisible {
     if (!toolPickerVisible) {
         return PKCanvasViewDrawingPolicyPencilOnly;

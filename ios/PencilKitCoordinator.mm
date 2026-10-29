@@ -8,6 +8,15 @@
 
 @end
 
+// Overlay canvases are keyed by document + page index, not page.label: labels
+// repeat across documents ("1", "2"...) and even within one PDF, so a label key
+// let one tab's canvas (and its strokes) be reused for another tab's page.
+static NSString *PKPageKey(PDFPage *page) {
+    PDFDocument *doc = page.document;
+    if (!doc) return [NSString stringWithFormat:@"page:%p", page];
+    return [NSString stringWithFormat:@"%p:%lu", doc, (unsigned long)[doc indexForPage:page]];
+}
+
 @implementation PencilKitCoordinator
 
 - (instancetype)init {
@@ -23,8 +32,8 @@
     PKCanvasView *resultView = nil;
     
     // Check if we already have an overlay for the page
-    if (self.pageToViewMapping[page.label]) {
-        resultView = self.pageToViewMapping[page.label];
+    if (self.pageToViewMapping[PKPageKey(page)]) {
+        resultView = self.pageToViewMapping[PKPageKey(page)];
     } else {
         // Create a new PKCanvasView if there is no overlay for this page
         PKCanvasView *canvasView = [[PKCanvasView alloc] initWithFrame:CGRectZero];
@@ -33,7 +42,7 @@
         canvasView.delegate = self;
         
         canvasView.backgroundColor = [UIColor clearColor];
-        self.pageToViewMapping[page.label] = canvasView;
+        self.pageToViewMapping[PKPageKey(page)] = canvasView;
         resultView = canvasView;
         [canvasView becomeFirstResponder];
         if (self.toolPickerVisible) {
@@ -72,14 +81,14 @@
     myPDFPage.drawing = canvasView.drawing;
     
     // Remove the reference to this page's overlay
-    [self.pageToViewMapping removeObjectForKey:page.label];
+    [self.pageToViewMapping removeObjectForKey:PKPageKey(page)];
 }
 
 -(void)prepareForPersistance:(MyPDFDocument *)document {
     for (NSUInteger pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
         MyPDFPage *page = (MyPDFPage *)[document pageAtIndex:pageIndex];
-        if (self.pageToViewMapping[page.label]) {
-            page.drawing = self.pageToViewMapping[page.label].drawing;
+        if (self.pageToViewMapping[PKPageKey(page)]) {
+            page.drawing = self.pageToViewMapping[PKPageKey(page)].drawing;
         }
     }
 }
@@ -88,23 +97,23 @@
     for (NSUInteger pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
         MyPDFPage *page = (MyPDFPage *)[document pageAtIndex:pageIndex];
         if (page.drawing) {
-            self.pageToViewMapping[page.label].drawing = page.drawing;
+            self.pageToViewMapping[PKPageKey(page)].drawing = page.drawing;
         }
     }
 }
 
 -(void)undo:(PDFPage *)pdfPage {
-    PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
     [[canvasView undoManager] undo];
 }
 
 -(void)redo:(PDFPage *)pdfPage {
-    PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
     [[canvasView undoManager] redo];
 }
 
 -(void)clear:(PDFPage *)pdfPage {
-    PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
     [canvasView setDrawing:[[PKDrawing alloc] init]];
 }
 
@@ -133,7 +142,7 @@
     }
     
     // Set the tool to the canvas
-    PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
     canvasView.tool = inkingTool;
     [canvasView setRulerActive:config.lineal];
     self.currentBrushSettings = config;
@@ -146,7 +155,7 @@
         [self applyDrawingPolicyToVisibleCanvases];
         return;
     }
-    PKCanvasView *canvasView = self.pageToViewMapping[pdfPage.label];
+    PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
     if (!canvasView) {
         [self applyDrawingPolicyToVisibleCanvases];
         return;
