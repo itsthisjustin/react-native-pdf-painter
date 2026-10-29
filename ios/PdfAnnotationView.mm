@@ -25,6 +25,11 @@ using namespace facebook::react;
     // remembered props equal the new ones (same game reopened), leaving the
     // canvas empty while ink sits on disk.
     NSString *_loadedCanvasAnnotationFile;
+    // Zoom the reader chose, as a multiple of size-to-fit, and the page it was
+    // chosen on. Page turns (buttons or swipes) re-apply it instead of letting
+    // the new page come in fitted.
+    CGFloat _userZoom;
+    NSInteger _zoomPageIndex;
 }
 
 // Never recycle: Fabric deletes-then-creates in one commit and hands the new
@@ -139,6 +144,12 @@ using namespace facebook::react;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(handlePageChange:)
                                                      name:PDFViewPageChangedNotification
+                                                   object:_view];
+        _userZoom = 1.0;
+        _zoomPageIndex = -1;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleScaleChange:)
+                                                     name:PDFViewScaleChangedNotification
                                                    object:_view];
 
         UITapGestureRecognizer *tapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
@@ -397,8 +408,28 @@ using namespace facebook::react;
     }
 }
 
+- (void)handleScaleChange:(NSNotification *)notification {
+    // Only zoom changes on the page the zoom was set on count as the reader's
+    // choice; the new page fitting itself during a turn doesn't
+    if (!_view.document || !_view.currentPage) return;
+    NSInteger index = (NSInteger)[_view.document indexForPage:_view.currentPage];
+    CGFloat fit = _view.scaleFactorForSizeToFit;
+    if (_zoomPageIndex < 0) _zoomPageIndex = index;
+    if (index == _zoomPageIndex && fit > 0) {
+        _userZoom = _view.scaleFactor / fit;
+    }
+}
+
 - (void)handlePageChange:(NSNotification *)notification {
     NSUInteger index = [_view.document indexForPage:_view.currentPage];
+    _zoomPageIndex = (NSInteger)index;
+    if (_userZoom > 1.01) {
+        CGFloat zoom = _userZoom;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGFloat fit = self->_view.scaleFactorForSizeToFit;
+            if (fit > 0) self->_view.scaleFactor = MIN(fit * zoom, self->_view.maxScaleFactor);
+        });
+    }
     PdfAnnotationViewEventEmitter::OnPageChange event = PdfAnnotationViewEventEmitter::OnPageChange{(int)index};
     if (_eventEmitter != nullptr) {
        std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)
