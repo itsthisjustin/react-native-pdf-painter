@@ -30,8 +30,6 @@ using namespace facebook::react;
     // the new page come in fitted.
     CGFloat _userZoom;
     NSInteger _zoomPageIndex;
-    // Canvas size the current drawing was last rendered at (see layoutSubviews)
-    CGSize _lastCanvasSize;
 }
 
 // Never recycle: Fabric deletes-then-creates in one commit and hands the new
@@ -98,18 +96,6 @@ using namespace facebook::react;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    // A fresh (non-recycled) view gets its ink before it has a size; PencilKit
-    // then renders only what fit the initial bounds and doesn't redraw the rest
-    // when the canvas grows, so ink showed partially on a board's first open.
-    // Re-assign the drawing whenever the canvas size changes.
-    CGSize size = _canvasView.bounds.size;
-    if (!CGSizeEqualToSize(size, _lastCanvasSize)) {
-        _lastCanvasSize = size;
-        PKDrawing *drawing = _canvasView.drawing;
-        if (size.width > 0 && size.height > 0 && drawing.strokes.count > 0) {
-            [self setCanvasDrawingQuietly:drawing];
-        }
-    }
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
