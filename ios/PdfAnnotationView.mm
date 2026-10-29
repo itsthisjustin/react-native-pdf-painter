@@ -30,6 +30,7 @@ using namespace facebook::react;
     // the new page come in fitted.
     CGFloat _userZoom;
     NSInteger _zoomPageIndex;
+    CGRect _lastPageRect;
 }
 
 // Never recycle: Fabric deletes-then-creates in one commit and hands the new
@@ -99,6 +100,22 @@ using namespace facebook::react;
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
+    [self emitPageRectSoon];
+}
+
+// Lets JS place overlays exactly on the page instead of guessing PDFKit's
+// fit and margins. Deferred so PDFKit has finished its own layout pass.
+- (void)emitPageRectSoon {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PDFPage *page = self->_view.currentPage;
+        if (!page || self->_eventEmitter == nullptr) return;
+        CGRect r = [self->_view convertRect:[page boundsForBox:self->_view.displayBox] fromPage:page];
+        r = [self->_view convertRect:r toView:self];
+        if (CGRectIsEmpty(r) || CGRectEqualToRect(r, self->_lastPageRect)) return;
+        self->_lastPageRect = r;
+        PdfAnnotationViewEventEmitter::OnPageRect event = PdfAnnotationViewEventEmitter::OnPageRect{r.origin.x, r.origin.y, r.size.width, r.size.height};
+        std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(self->_eventEmitter)->onPageRect(event);
+    });
 }
 
 - (void)updateCanvasToolPickerVisibility:(BOOL)visible {
@@ -418,6 +435,7 @@ using namespace facebook::react;
     if (index == _zoomPageIndex && fit > 0) {
         _userZoom = _view.scaleFactor / fit;
     }
+    [self emitPageRectSoon];
 }
 
 - (void)handlePageChange:(NSNotification *)notification {
@@ -439,6 +457,7 @@ using namespace facebook::react;
     dispatch_async(dispatch_get_main_queue(), ^{
         [self refreshPencilTouchFiltering];
     });
+    [self emitPageRectSoon];
 }
 
 - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &)oldProps

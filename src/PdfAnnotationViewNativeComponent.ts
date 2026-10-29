@@ -33,6 +33,12 @@ export type TapEvent = {
     x: CodegenTypes.Double;
     y: CodegenTypes.Double;
 };
+export type PageRectEvent = {
+    x: CodegenTypes.Double;
+    y: CodegenTypes.Double;
+    width: CodegenTypes.Double;
+    height: CodegenTypes.Double;
+};
 export type LinkCompletedEvent = {
     fromPage: CodegenTypes.Int32;
     toPage: CodegenTypes.Int32;
@@ -77,6 +83,9 @@ export interface NativeProps extends ViewProps {
     onDocumentFinished?: CodegenTypes.BubblingEventHandler<DocumentFinishedEvent> | null;
     onTap?: CodegenTypes.BubblingEventHandler<TapEvent> | null;
     onLinkCompleted?: CodegenTypes.BubblingEventHandler<LinkCompletedEvent> | null;
+    /** iOS only. Where the current page is drawn, in this view's coordinates
+        (excludes PDFKit's page margins). Fires on layout, page and zoom changes. */
+    onPageRect?: CodegenTypes.BubblingEventHandler<PageRectEvent> | null;
     androidBeyondViewportPageCount?: CodegenTypes.Int32;
 }
 
