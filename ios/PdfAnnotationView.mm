@@ -31,6 +31,7 @@ using namespace facebook::react;
     CGFloat _userZoom;
     NSInteger _zoomPageIndex;
     CGRect _lastPageRect;
+    CGSize _fitSize;
 }
 
 // Never recycle: Fabric deletes-then-creates in one commit and hands the new
@@ -100,6 +101,19 @@ using namespace facebook::react;
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
+    // Re-fit when the view changes size (a Duo unfolding, rotation, a resized split pane):
+    // PDFKit keeps the old scale, leaving the page small or overflowing. A reader's zoom is
+    // kept relative to the new fit.
+    if (_view.document && !CGSizeEqualToSize(self.bounds.size, _fitSize)) {
+        _fitSize = self.bounds.size;
+        CGFloat zoom = _userZoom > 1.01 ? _userZoom : 1.0;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGFloat fit = self->_view.scaleFactorForSizeToFit;
+            if (fit <= 0) return;
+            self->_view.minScaleFactor = fit;
+            self->_view.scaleFactor = MIN(fit * zoom, self->_view.maxScaleFactor);
+        });
+    }
     [self emitPageRectSoon];
 }
 
