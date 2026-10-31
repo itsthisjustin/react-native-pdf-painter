@@ -96,15 +96,21 @@ using namespace facebook::react;
     [self applyAllowedTouchTypes:types toView:_view];
 }
 
++ (void)disableSafeAreaInsets:(UIView *)view {
+    view.insetsLayoutMarginsFromSafeArea = NO;
+    if ([view isKindOfClass:[UIScrollView class]]) {
+        ((UIScrollView *)view).contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    }
+    for (UIView *sub in view.subviews) [self disableSafeAreaInsets:sub];
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
-    // Same for PDFKit's internal scroll view (created lazily): the page must not
-    // drift with the safe area while its ink stays fixed
-    for (UIView *sub in _view.subviews) {
-        if ([sub isKindOfClass:[UIScrollView class]]) {
-            ((UIScrollView *)sub).contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-        }
-    }
+    // Same for PDFKit's internal scroll views (created lazily, nested below the
+    // PDFView): the page must not drift with the safe area while its ink stays
+    // fixed. Opening a sidebar on the unfolded iPhone Duo moved the board's
+    // overlap with the inner screen's safe area and pushed the page down.
+    [PdfAnnotationView disableSafeAreaInsets:_view];
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
