@@ -98,6 +98,13 @@ using namespace facebook::react;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    // Same for PDFKit's internal scroll view (created lazily): the page must not
+    // drift with the safe area while its ink stays fixed
+    for (UIView *sub in _view.subviews) {
+        if ([sub isKindOfClass:[UIScrollView class]]) {
+            ((UIScrollView *)sub).contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        }
+    }
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
@@ -166,6 +173,11 @@ using namespace facebook::react;
         _canvasView.backgroundColor = [UIColor clearColor];
         _canvasView.opaque = NO;
         _canvasView.delegate = self;
+        // PKCanvasView is a scroll view: left to UIKit, it insets its content by
+        // whatever safe area (e.g. the iPhone Duo's camera cutout) its frame
+        // overlaps, so ink shifted whenever the layout moved the canvas (opening
+        // a sidebar, returning from another screen). Ink must stay put.
+        _canvasView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         _pencilKitCoordinator = [[PencilKitCoordinator alloc] init];
         _pencilKitCoordinator.delegate = self;
         if (@available(iOS 16.0, *)) {

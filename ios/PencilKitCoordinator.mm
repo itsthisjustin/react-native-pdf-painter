@@ -40,6 +40,8 @@ static NSString *PKPageKey(PDFPage *page) {
         canvasView.drawingPolicy = PKCanvasViewDrawingPolicyPencilOnly;
         canvasView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
         canvasView.delegate = self;
+        // Don't inset page ink by the safe area (see PdfAnnotationView)
+        canvasView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         
         canvasView.backgroundColor = [UIColor clearColor];
         self.pageToViewMapping[PKPageKey(page)] = canvasView;
