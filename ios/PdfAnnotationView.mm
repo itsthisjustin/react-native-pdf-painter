@@ -31,7 +31,6 @@ using namespace facebook::react;
     CGFloat _userZoom;
     NSInteger _zoomPageIndex;
     CGRect _lastPageRect;
-    CGSize _fitSize;
 }
 
 // Never recycle: Fabric deletes-then-creates in one commit and hands the new
@@ -96,6 +95,22 @@ using namespace facebook::react;
     [self applyAllowedTouchTypes:types toView:_view];
 }
 
+// Aspect-fit of the current page in this view's bounds, inside PDFKit's page
+// margins: what scaleFactorForSizeToFit returns when the view overlaps no safe area.
+- (CGFloat)boundsFit {
+    PDFPage *page = _view.currentPage;
+    if (!page) return 0;
+    CGRect box = [page boundsForBox:_view.displayBox];
+    BOOL quarterTurn = (page.rotation / 90) % 2 != 0;
+    CGFloat pw = quarterTurn ? box.size.height : box.size.width;
+    CGFloat ph = quarterTurn ? box.size.width : box.size.height;
+    UIEdgeInsets m = _view.displaysPageBreaks ? _view.pageBreakMargins : UIEdgeInsetsZero;
+    CGFloat w = self.bounds.size.width - m.left - m.right;
+    CGFloat h = self.bounds.size.height - m.top - m.bottom;
+    if (pw <= 0 || ph <= 0 || w <= 0 || h <= 0) return 0;
+    return MIN(w / pw, h / ph);
+}
+
 + (void)disableSafeAreaInsets:(UIView *)view {
     view.insetsLayoutMarginsFromSafeArea = NO;
     if ([view isKindOfClass:[UIScrollView class]]) {
@@ -114,18 +129,23 @@ using namespace facebook::react;
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
-    // Re-fit when the view changes size (a Duo unfolding, rotation, a resized split pane):
-    // PDFKit keeps the old scale, leaving the page small or overflowing. A reader's zoom is
-    // kept relative to the new fit.
-    if (_view.document && !CGSizeEqualToSize(self.bounds.size, _fitSize)) {
-        _fitSize = self.bounds.size;
+    // Hold the page at a fit computed from this view's own size. PDFKit's
+    // scaleFactorForSizeToFit subtracts whatever safe area the view overlaps
+    // (the home indicator, the Duo's strip), so a board page shrank ~5% and
+    // slid whenever the camera moved the board across the screen edge, while
+    // its ink, in fixed table coordinates, stayed put. Also re-fits on resizes
+    // (a Duo unfolding, rotation, a split pane). A reader's zoom is kept
+    // relative to the fit.
+    if (_view.document && _view.currentPage) {
+        CGFloat fit = [self boundsFit];
         CGFloat zoom = _userZoom > 1.01 ? _userZoom : 1.0;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGFloat fit = self->_view.scaleFactorForSizeToFit;
-            if (fit <= 0) return;
-            self->_view.minScaleFactor = fit;
-            self->_view.scaleFactor = MIN(fit * zoom, self->_view.maxScaleFactor);
-        });
+        CGFloat target = MIN(fit * zoom, _view.maxScaleFactor);
+        if (fit > 0 && fabs(_view.scaleFactor - target) > 0.0005) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self->_view.minScaleFactor = fit;
+                self->_view.scaleFactor = target;
+            });
+        }
     }
     [self emitPageRectSoon];
 }
@@ -184,6 +204,11 @@ using namespace facebook::react;
         // overlaps, so ink shifted whenever the layout moved the canvas (opening
         // a sidebar, returning from another screen). Ink must stay put.
         _canvasView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        // React Native pans and zooms the canvas itself; the canvas must never
+        // scroll on its own (see scrollViewDidScroll:)
+        _canvasView.scrollEnabled = NO;
+        _canvasView.minimumZoomScale = 1;
+        _canvasView.maximumZoomScale = 1;
         _pencilKitCoordinator = [[PencilKitCoordinator alloc] init];
         _pencilKitCoordinator.delegate = self;
         if (@available(iOS 16.0, *)) {
@@ -462,7 +487,7 @@ using namespace facebook::react;
     // choice; the new page fitting itself during a turn doesn't
     if (!_view.document || !_view.currentPage) return;
     NSInteger index = (NSInteger)[_view.document indexForPage:_view.currentPage];
-    CGFloat fit = _view.scaleFactorForSizeToFit;
+    CGFloat fit = [self boundsFit];
     if (_zoomPageIndex < 0) _zoomPageIndex = index;
     if (index == _zoomPageIndex && fit > 0) {
         _userZoom = _view.scaleFactor / fit;
@@ -476,7 +501,7 @@ using namespace facebook::react;
     if (_userZoom > 1.01) {
         CGFloat zoom = _userZoom;
         dispatch_async(dispatch_get_main_queue(), ^{
-            CGFloat fit = self->_view.scaleFactorForSizeToFit;
+            CGFloat fit = [self boundsFit];
             if (fit > 0) self->_view.scaleFactor = MIN(fit * zoom, self->_view.maxScaleFactor);
         });
     }
@@ -514,9 +539,10 @@ using namespace facebook::react;
              }
         });
 
-        _view.minScaleFactor = _view.scaleFactorForSizeToFit;
+        CGFloat loadFit = [self boundsFit] > 0 ? [self boundsFit] : _view.scaleFactorForSizeToFit;
+        _view.minScaleFactor = loadFit;
         _view.maxScaleFactor = 4.0;
-        _view.scaleFactor = _view.scaleFactorForSizeToFit;
+        _view.scaleFactor = loadFit;
         dispatch_async(dispatch_get_main_queue(), ^{
             const auto &loadedProps = *std::static_pointer_cast<PdfAnnotationViewProps const>(self->_props);
             if (loadedProps.iosPencilAlwaysDraws && !loadedProps.canvasMode) {
@@ -779,6 +805,16 @@ using namespace facebook::react;
             NSInteger firstInt = [firstElement integerValue];
             [_view goToPage:[_view.document pageAtIndex:firstInt]];
         }
+    }
+}
+
+// A PKCanvasView is a scroll view, and it could come up scrolled (it loads its
+// drawing before React Native gives it its final size), drawing every stroke
+// offset from the board underneath until a later layout pass reset it. In
+// canvas mode the canvas is exactly the view's size, so pin it at the origin.
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView == _canvasView && !CGPointEqualToPoint(scrollView.contentOffset, CGPointZero)) {
+        scrollView.contentOffset = CGPointZero;
     }
 }
 
