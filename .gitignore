@@ -81,3 +81,4 @@ lib/
 ios/generated
 android/generated
 react-native-pdf-painter-*.tgz
+.build/

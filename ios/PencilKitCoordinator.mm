@@ -1,4 +1,5 @@
 #import "PencilKitCoordinator.h"
+#import "PdfAnnotationView.h"
 #import <PDFKit/PDFKit.h>
 #import <PencilKit/PencilKit.h>
 
@@ -42,6 +43,8 @@ static NSString *PKPageKey(PDFPage *page) {
         canvasView.delegate = self;
         // Don't inset page ink by the safe area (see PdfAnnotationView)
         canvasView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        // No "Select All / Insert Space" menu on a finger tap (see PdfAnnotationView)
+        dispatch_async(dispatch_get_main_queue(), ^{ [PdfAnnotationView removeEditMenu:canvasView]; });
         
         canvasView.backgroundColor = [UIColor clearColor];
         self.pageToViewMapping[PKPageKey(page)] = canvasView;

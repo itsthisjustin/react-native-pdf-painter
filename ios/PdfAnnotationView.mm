@@ -111,6 +111,17 @@ using namespace facebook::react;
     return MIN(w / pw, h / ph);
 }
 
+// PencilKit attaches an edit menu ("Select All / Insert Space") that a single finger tap
+// on the canvas pops up, even with drawing off. Selection editing isn't used here; strip it.
++ (void)removeEditMenu:(UIView *)view {
+    if (@available(iOS 16.0, *)) {
+        for (id<UIInteraction> interaction in [view.interactions copy]) {
+            if ([interaction isKindOfClass:[UIEditMenuInteraction class]]) [view removeInteraction:interaction];
+        }
+    }
+    for (UIView *sub in view.subviews) [self removeEditMenu:sub];
+}
+
 + (void)disableSafeAreaInsets:(UIView *)view {
     view.insetsLayoutMarginsFromSafeArea = NO;
     if ([view isKindOfClass:[UIScrollView class]]) {
@@ -126,6 +137,7 @@ using namespace facebook::react;
     // fixed. Opening a sidebar on the unfolded iPhone Duo moved the board's
     // overlap with the inner screen's safe area and pushed the page down.
     [PdfAnnotationView disableSafeAreaInsets:_view];
+    [PdfAnnotationView removeEditMenu:_canvasView];
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
