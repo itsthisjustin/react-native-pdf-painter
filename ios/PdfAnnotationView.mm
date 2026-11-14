@@ -25,6 +25,9 @@ using namespace facebook::react;
     // remembered props equal the new ones (same game reopened), leaving the
     // canvas empty while ink sits on disk.
     NSString *_loadedCanvasAnnotationFile;
+    // The annotation file the props ask for; loaded once the canvas is on
+    // screen with a size (see loadCanvasDrawingIfReady).
+    NSString *_wantedCanvasAnnotationFile;
     // Zoom the reader chose, as a multiple of size-to-fit, and the page it was
     // chosen on. Page turns (buttons or swipes) re-apply it instead of letting
     // the new page come in fitted.
@@ -122,6 +125,30 @@ using namespace facebook::react;
     for (UIView *sub in view.subviews) [self removeEditMenu:sub];
 }
 
+// PDFKit centers a page smaller than its view by offsetting the page's frame
+// inside a per-page zoom scroll view, but only when that scroll view lays out.
+// A scale set after that layout (a board fitted once React Native gives the view
+// its size) left the page at the old origin, a few points off its ink, until a
+// rotation or resize forced another pass. Center it ourselves.
++ (void)centerPagesIn:(UIView *)view {
+    if ([view isKindOfClass:[UIScrollView class]]) {
+        UIScrollView *scroll = (UIScrollView *)view;
+        UIView *page = [scroll.delegate respondsToSelector:@selector(viewForZoomingInScrollView:)]
+            ? [scroll.delegate viewForZoomingInScrollView:scroll] : nil;
+        if (page && page.superview == scroll) {
+            CGRect f = page.frame;
+            CGPoint origin = CGPointMake(MAX(0, (scroll.bounds.size.width - f.size.width) / 2),
+                                         MAX(0, (scroll.bounds.size.height - f.size.height) / 2));
+            if (fabs(f.origin.x - origin.x) > 0.01 || fabs(f.origin.y - origin.y) > 0.01) {
+                f.origin = origin;
+                page.frame = f;
+            }
+            return;
+        }
+    }
+    for (UIView *sub in view.subviews) [self centerPagesIn:sub];
+}
+
 + (void)disableSafeAreaInsets:(UIView *)view {
     view.insetsLayoutMarginsFromSafeArea = NO;
     if ([view isKindOfClass:[UIScrollView class]]) {
@@ -138,6 +165,7 @@ using namespace facebook::react;
     // overlap with the inner screen's safe area and pushed the page down.
     [PdfAnnotationView disableSafeAreaInsets:_view];
     [PdfAnnotationView removeEditMenu:_canvasView];
+    [self loadCanvasDrawingIfReady];
     // PDFKit creates gesture recognizers lazily (page view controller, per-page
     // overlays), so re-apply the filter whenever layout runs.
     [self refreshPencilTouchFiltering];
@@ -166,6 +194,7 @@ using namespace facebook::react;
 // fit and margins. Deferred so PDFKit has finished its own layout pass.
 - (void)emitPageRectSoon {
     dispatch_async(dispatch_get_main_queue(), ^{
+        [PdfAnnotationView centerPagesIn:self->_view];
         PDFPage *page = self->_view.currentPage;
         if (!page || self->_eventEmitter == nullptr) return;
         CGRect r = [self->_view convertRect:[page boundsForBox:self->_view.displayBox] fromPage:page];
@@ -260,6 +289,7 @@ using namespace facebook::react;
 - (void)didMoveToWindow
 {
     [super didMoveToWindow];
+    [self loadCanvasDrawingIfReady];
     const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
     if (props.canvasMode) {
         [self updateCanvasToolPickerVisibility:props.iosToolPickerVisible];
@@ -293,6 +323,7 @@ using namespace facebook::react;
     [self retireCurrentDocument];
     _view.document = nil;
     _loadedCanvasAnnotationFile = nil;
+    _wantedCanvasAnnotationFile = nil;
     [self setCanvasDrawingQuietly:[[PKDrawing alloc] init]];
     if (@available(iOS 16.0, *)) {
         [_view setInMarkupMode:NO];
@@ -461,7 +492,23 @@ using namespace facebook::react;
     }
 }
 
+// PencilKit renders ink in tiles and only re-renders the ones whose strokes
+// changed. Given its drawing before the canvas was in a window with a size
+// (props arrive before layout), it sometimes left a tile blank and, the strokes
+// never changing again, kept it blank: a square of ink missing on a board's
+// first open or on returning to its tab. So hold the file until the canvas is
+// on screen and sized, and assign the drawing then.
+- (void)loadCanvasDrawingIfReady {
+    if (!_wantedCanvasAnnotationFile || [_wantedCanvasAnnotationFile isEqualToString:_loadedCanvasAnnotationFile]) return;
+    if (!self.window || CGRectIsEmpty(_canvasView.bounds)) return;
+    [self loadCanvasDrawingFromDisk:_wantedCanvasAnnotationFile];
+    _loadedCanvasAnnotationFile = _wantedCanvasAnnotationFile;
+}
+
 - (void)saveCanvasDrawingToDisk:(NSString *)filePath {
+    // A canvas still waiting for its ink holds nothing worth saving, and
+    // writing it would erase the file it is about to load.
+    if (_wantedCanvasAnnotationFile && ![_wantedCanvasAnnotationFile isEqualToString:_loadedCanvasAnnotationFile]) return;
     if ([filePath hasPrefix:@"file://"]) {
         filePath = [filePath stringByReplacingOccurrencesOfString:@"file://" withString:@""];
     }
@@ -636,8 +683,8 @@ using namespace facebook::react;
     if (oldViewProps.annotationFile != newViewProps.annotationFile) {
         NSString * filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];
         if (newViewProps.canvasMode) {
-            [self loadCanvasDrawingFromDisk:filePath];
-            _loadedCanvasAnnotationFile = filePath;
+            _wantedCanvasAnnotationFile = filePath;
+            [self loadCanvasDrawingIfReady];
         } else {
             [(MyPDFDocument* )_view.document loadDrawingsFromDisk:filePath];
             [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
@@ -686,10 +733,8 @@ using namespace facebook::react;
         // the new ones (where the diff above never fires).
         if (!newViewProps.annotationFile.empty()) {
             NSString *filePath = [[NSString alloc] initWithUTF8String: newViewProps.annotationFile.c_str()];
-            if (![filePath isEqualToString:_loadedCanvasAnnotationFile]) {
-                [self loadCanvasDrawingFromDisk:filePath];
-                _loadedCanvasAnnotationFile = filePath;
-            }
+            _wantedCanvasAnnotationFile = filePath;
+            [self loadCanvasDrawingIfReady];
         }
     } else if (!newViewProps.pdfUrl.empty() && _view.document == nil) {
         NSString * pdfUrl = [[NSString alloc] initWithUTF8String: newViewProps.pdfUrl.c_str()];
