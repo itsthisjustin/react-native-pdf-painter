@@ -68,6 +68,13 @@ export interface NativeProps extends ViewProps {
      */
     iosDarkInk?: boolean;
     /**
+     * iOS only. The page fills the view edge to edge (no page margins): it is
+     * scaled to cover the view, so the reader scrolls along the longer side and
+     * can zoom in but never out past full bleed. For reading a document like a
+     * book. Without it the whole page is fitted inside the view.
+     */
+    iosFillView?: boolean;
+    /**
      * iOS only, default false. "Draw and hold" shape recognition: finish a
      * stroke with the pen resting at its end (about half a second) and, if it
      * clearly is a straight line, arrow, circle/ellipse, rectangle or

@@ -107,6 +107,14 @@ using namespace facebook::react;
     BOOL quarterTurn = (page.rotation / 90) % 2 != 0;
     CGFloat pw = quarterTurn ? box.size.height : box.size.width;
     CGFloat ph = quarterTurn ? box.size.width : box.size.height;
+    const auto &props = *std::static_pointer_cast<const PdfAnnotationViewProps>(_props);
+    if (props.iosFillView) {
+        // Full bleed: cover the view, with no margin around the page
+        CGFloat w = self.bounds.size.width;
+        CGFloat h = self.bounds.size.height;
+        if (pw <= 0 || ph <= 0 || w <= 0 || h <= 0) return 0;
+        return MAX(w / pw, h / ph);
+    }
     UIEdgeInsets m = _view.displaysPageBreaks ? _view.pageBreakMargins : UIEdgeInsetsZero;
     CGFloat w = self.bounds.size.width - m.left - m.right;
     CGFloat h = self.bounds.size.height - m.top - m.bottom;
@@ -689,6 +697,12 @@ using namespace facebook::react;
             [(MyPDFDocument* )_view.document loadDrawingsFromDisk:filePath];
             [_pencilKitCoordinator updateDrawings:(MyPDFDocument *)_view.document];
         }
+    }
+    if (oldViewProps.iosFillView != newViewProps.iosFillView) {
+        // A page that bleeds to the edges has no gutter around it
+        _view.displaysPageBreaks = !newViewProps.iosFillView;
+        if (newViewProps.iosFillView) _view.pageBreakMargins = UIEdgeInsetsZero;
+        [self setNeedsLayout];
     }
     if (oldViewProps.iosDarkInk != newViewProps.iosDarkInk) {
         _canvasView.overrideUserInterfaceStyle = newViewProps.iosDarkInk
