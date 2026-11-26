@@ -25,6 +25,7 @@ static NSString *PKPageKey(PDFPage *page) {
     if (self) {
         _pageToViewMapping = [NSMutableDictionary dictionary];
         _toolPickerVisible = NO;
+        _strokeRefiner = [[StrokeRefinementController alloc] init];
     }
     return self;
 }
@@ -216,7 +217,21 @@ static NSString *PKPageKey(PDFPage *page) {
     return [UIColor blackColor];
 }
 
+- (void)canvasViewDidBeginUsingTool:(PKCanvasView *)canvasView {
+    [self.strokeRefiner canvasViewDidBeginUsingTool:canvasView];
+}
+
+- (void)canvasViewDidEndUsingTool:(PKCanvasView *)canvasView {
+    [self.strokeRefiner canvasViewDidEndUsingTool:canvasView];
+}
+
 - (void)canvasViewDrawingDidChange:(PKCanvasView *)canvasView {
+    // A refinement assigns the canvas a new drawing, which PencilKit reports
+    // right back here. That echo is skipped: the change that started the
+    // refinement is still being handled below and notifies the delegate
+    // (autosave) once, with the refined drawing in place.
+    if (self.strokeRefiner.isApplyingRefinement) return;
+    [self.strokeRefiner canvasViewDrawingDidChange:canvasView];
     if ([self.delegate respondsToSelector:@selector(pencilKitCoordinatorDrawingDidChange:)]) {
         [self.delegate pencilKitCoordinatorDrawingDidChange:self];
     }

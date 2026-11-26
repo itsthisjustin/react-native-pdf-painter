@@ -720,6 +720,8 @@ using namespace facebook::react;
     _canvasView.overrideUserInterfaceStyle = newViewProps.iosDarkInk
         ? UIUserInterfaceStyleDark
         : UIUserInterfaceStyleLight;
+    _pencilKitCoordinator.strokeRefiner.shapeRecognitionEnabled = newViewProps.iosShapeRecognition;
+    _pencilKitCoordinator.strokeRefiner.smoothStrokesEnabled = newViewProps.iosSmoothStrokes;
     if (newViewProps.canvasMode) {
         if (_view.document != nil) {
             [self retireCurrentDocument];
@@ -875,7 +877,20 @@ using namespace facebook::react;
     }
 }
 
+- (void)canvasViewDidBeginUsingTool:(PKCanvasView *)canvasView {
+    [_pencilKitCoordinator.strokeRefiner canvasViewDidBeginUsingTool:canvasView];
+}
+
+- (void)canvasViewDidEndUsingTool:(PKCanvasView *)canvasView {
+    [_pencilKitCoordinator.strokeRefiner canvasViewDidEndUsingTool:canvasView];
+}
+
 - (void)canvasViewDrawingDidChange:(PKCanvasView *)canvasView {
+    // Shape recognition / handwriting clean-up of a freshly drawn stroke.
+    // The echo of a refinement's own drawing assignment is skipped; the
+    // change that started it saves the refined drawing below.
+    if (_pencilKitCoordinator.strokeRefiner.isApplyingRefinement) return;
+    [_pencilKitCoordinator.strokeRefiner canvasViewDrawingDidChange:canvasView];
     const auto &props = *std::static_pointer_cast<PdfAnnotationViewProps const>(_props);
     if (!props.autoSave || !props.canvasMode) {
         return;

@@ -4,12 +4,7 @@ import React from 'react';
 import { codegenNativeCommands } from 'react-native';
 
 export type BrushType =
-    | 'marker'
-    | 'pressure-pen'
-    | 'highlighter'
-    | 'eraser'
-    | 'link'
-    | 'none';
+    'marker' | 'pressure-pen' | 'highlighter' | 'eraser' | 'link' | 'none';
 
 export interface BrushSettings {
     type?: CodegenTypes.WithDefault<BrushType, 'marker'>;
@@ -72,6 +67,23 @@ export interface NativeProps extends ViewProps {
      * literal (the default light appearance).
      */
     iosDarkInk?: boolean;
+    /**
+     * iOS only, default false. "Draw and hold" shape recognition: finish a
+     * stroke with the pen resting at its end (about half a second) and, if it
+     * clearly is a straight line, arrow, circle/ellipse, rectangle or
+     * triangle, it is replaced by a clean version in the same ink. Undo
+     * brings back the hand-drawn stroke. Small marks and anything not
+     * confidently recognised are left exactly as drawn; highlighter strokes
+     * only ever snap to straight lines.
+     */
+    iosShapeRecognition?: boolean;
+    /**
+     * iOS only, default false. Handwriting clean-up: a light smoothing of
+     * each finished pen stroke that removes jitter and evens out width
+     * wobble while keeping endpoints, corners and the writer's hand.
+     * Highlighter strokes and recognised shapes are not smoothed.
+     */
+    iosSmoothStrokes?: boolean;
     thumbnailMode?: boolean;
     pageNavigationEnabled?: boolean;
     annotationFile?: string;
