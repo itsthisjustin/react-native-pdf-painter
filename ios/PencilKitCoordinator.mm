@@ -18,6 +18,62 @@ static NSString *PKPageKey(PDFPage *page) {
     return [NSString stringWithFormat:@"%p:%lu", doc, (unsigned long)[doc indexForPage:page]];
 }
 
+// A page's ink canvas. PencilKit rasterizes ink in tiles; a drawing assigned
+// before the canvas is on screen with a size can leave a tile blank, and since
+// PencilKit only redraws tiles whose strokes change, it stays blank: a square of
+// ink missing after opening a document or turning to a page. PDFKit hands out
+// overlay canvases before placing them, so hold the page's drawing until the
+// canvas is in a window and sized, and assign it then.
+@interface PageInkCanvasView : PKCanvasView
+// The drawing waiting to be shown; nil once it has been assigned
+@property (nonatomic, strong, nullable) PKDrawing *pendingDrawing;
+// What this page's ink is, whether or not it has reached the canvas yet.
+// Anything that persists ink must read this, never `drawing`: a canvas still
+// waiting holds an empty drawing, and saving that would erase the page's ink.
+@property (nonatomic, readonly) PKDrawing *currentDrawing;
+- (void)showDrawing:(PKDrawing *)drawing;
+@end
+
+@implementation PageInkCanvasView
+
+- (PKDrawing *)currentDrawing {
+    return self.pendingDrawing ?: self.drawing;
+}
+
+- (void)showDrawing:(PKDrawing *)drawing {
+    self.pendingDrawing = drawing;
+    [self assignPendingDrawingIfReady];
+}
+
+- (void)assignPendingDrawingIfReady {
+    if (!self.pendingDrawing || !self.window || CGRectIsEmpty(self.bounds)) return;
+    PKDrawing *drawing = self.pendingDrawing;
+    self.pendingDrawing = nil;
+    // PencilKit fires canvasViewDrawingDidChange even for programmatic
+    // assignment, which triggers an autosave; detach the delegate around it.
+    id<PKCanvasViewDelegate> savedDelegate = self.delegate;
+    self.delegate = nil;
+    self.drawing = drawing;
+    self.delegate = savedDelegate;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self assignPendingDrawingIfReady];
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self assignPendingDrawingIfReady];
+}
+
+@end
+
+static PKDrawing *PKCurrentDrawing(PKCanvasView *canvasView) {
+    if ([canvasView isKindOfClass:[PageInkCanvasView class]]) return ((PageInkCanvasView *)canvasView).currentDrawing;
+    return canvasView.drawing;
+}
+
 @implementation PencilKitCoordinator
 
 - (instancetype)init {
@@ -38,7 +94,7 @@ static NSString *PKPageKey(PDFPage *page) {
         resultView = self.pageToViewMapping[PKPageKey(page)];
     } else {
         // Create a new PKCanvasView if there is no overlay for this page
-        PKCanvasView *canvasView = [[PKCanvasView alloc] initWithFrame:CGRectZero];
+        PKCanvasView *canvasView = [[PageInkCanvasView alloc] initWithFrame:CGRectZero];
         canvasView.drawingPolicy = PKCanvasViewDrawingPolicyPencilOnly;
         canvasView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
         canvasView.delegate = self;
@@ -62,16 +118,11 @@ static NSString *PKPageKey(PDFPage *page) {
         }
     }
     
-    // If there is an existing drawing, apply it to the canvas. PencilKit
-    // fires canvasViewDrawingDidChange even for programmatic assignment,
-    // which triggered an autosave mid page-scroll (and crashed there on
-    // PDFs with native link annotations) — detach the delegate around it.
+    // If there is an existing drawing, give it to the canvas, which shows it
+    // once it is on screen (see PageInkCanvasView) without echoing an autosave.
     MyPDFPage *myPDFPage = (MyPDFPage *)page;
     if (myPDFPage.drawing) {
-        id<PKCanvasViewDelegate> savedDelegate = resultView.delegate;
-        resultView.delegate = nil;
-        resultView.drawing = myPDFPage.drawing;
-        resultView.delegate = savedDelegate;
+        [(PageInkCanvasView *)resultView showDrawing:myPDFPage.drawing];
     }
     
     [self setDrawingTool:myPDFPage brushSettings:self.currentBrushSettings];
@@ -84,7 +135,7 @@ static NSString *PKPageKey(PDFPage *page) {
     MyPDFPage *myPDFPage = (MyPDFPage *)page;
     
     // Save the drawing back to the page before it is discarded
-    myPDFPage.drawing = canvasView.drawing;
+    myPDFPage.drawing = PKCurrentDrawing(canvasView);
     
     // Remove the reference to this page's overlay
     [self.pageToViewMapping removeObjectForKey:PKPageKey(page)];
@@ -94,7 +145,7 @@ static NSString *PKPageKey(PDFPage *page) {
     for (NSUInteger pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
         MyPDFPage *page = (MyPDFPage *)[document pageAtIndex:pageIndex];
         if (self.pageToViewMapping[PKPageKey(page)]) {
-            page.drawing = self.pageToViewMapping[PKPageKey(page)].drawing;
+            page.drawing = PKCurrentDrawing(self.pageToViewMapping[PKPageKey(page)]);
         }
     }
 }
@@ -103,7 +154,7 @@ static NSString *PKPageKey(PDFPage *page) {
     for (NSUInteger pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
         MyPDFPage *page = (MyPDFPage *)[document pageAtIndex:pageIndex];
         if (page.drawing) {
-            self.pageToViewMapping[PKPageKey(page)].drawing = page.drawing;
+            [(PageInkCanvasView *)self.pageToViewMapping[PKPageKey(page)] showDrawing:page.drawing];
         }
     }
 }
@@ -120,6 +171,8 @@ static NSString *PKPageKey(PDFPage *page) {
 
 -(void)clear:(PDFPage *)pdfPage {
     PKCanvasView *canvasView = self.pageToViewMapping[PKPageKey(pdfPage)];
+    // Also drop ink still waiting to be shown, or it would reappear after the clear
+    ((PageInkCanvasView *)canvasView).pendingDrawing = nil;
     [canvasView setDrawing:[[PKDrawing alloc] init]];
 }
 

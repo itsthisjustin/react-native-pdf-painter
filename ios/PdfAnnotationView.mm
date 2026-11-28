@@ -157,6 +157,25 @@ using namespace facebook::react;
     for (UIView *sub in view.subviews) [self centerPagesIn:sub];
 }
 
+// A page taller than the view (zoomed in, or shown full bleed) opens at its top,
+// like turning to a new page of a book. PDFKit otherwise leaves a freshly turned
+// page wherever its scroll view happened to start, which read as "panned down".
++ (void)scrollPagesToTopIn:(UIView *)view {
+    if ([view isKindOfClass:[UIScrollView class]]) {
+        UIScrollView *scroll = (UIScrollView *)view;
+        UIView *page = [scroll.delegate respondsToSelector:@selector(viewForZoomingInScrollView:)]
+            ? [scroll.delegate viewForZoomingInScrollView:scroll] : nil;
+        if (page && page.superview == scroll) {
+            if (scroll.contentSize.height > scroll.bounds.size.height + 0.5) {
+                CGFloat x = MAX(0, (scroll.contentSize.width - scroll.bounds.size.width) / 2);
+                [scroll setContentOffset:CGPointMake(x, -scroll.adjustedContentInset.top) animated:NO];
+            }
+            return;
+        }
+    }
+    for (UIView *sub in view.subviews) [self scrollPagesToTopIn:sub];
+}
+
 + (void)disableSafeAreaInsets:(UIView *)view {
     view.insetsLayoutMarginsFromSafeArea = NO;
     if ([view isKindOfClass:[UIScrollView class]]) {
@@ -184,18 +203,34 @@ using namespace facebook::react;
     // its ink, in fixed table coordinates, stayed put. Also re-fits on resizes
     // (a Duo unfolding, rotation, a split pane). A reader's zoom is kept
     // relative to the fit.
-    if (_view.document && _view.currentPage) {
-        CGFloat fit = [self boundsFit];
-        CGFloat zoom = _userZoom > 1.01 ? _userZoom : 1.0;
-        CGFloat target = MIN(fit * zoom, _view.maxScaleFactor);
-        if (fit > 0 && fabs(_view.scaleFactor - target) > 0.0005) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self->_view.minScaleFactor = fit;
-                self->_view.scaleFactor = target;
-            });
-        }
-    }
+    [self holdPageAtFitSoon];
     [self emitPageRectSoon];
+}
+
+// PDFKit re-fits on its own whenever it shows a new page, using its
+// safe-area-reduced fit, and each page gets a fresh internal scroll view that
+// insets by the safe area again: a journal page shrank ~5% the first time it
+// was turned. Everything layoutSubviews pins (insets, fit, centering) has to be
+// pinned again then, so run it again: now, and once more after PDFKit has had
+// time to create and lay out the new page's views.
+- (void)relayoutSoon {
+    dispatch_async(dispatch_get_main_queue(), ^{ [self setNeedsLayout]; });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self setNeedsLayout];
+    });
+}
+
+- (void)holdPageAtFitSoon {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_view.document || !self->_view.currentPage) return;
+        CGFloat fit = [self boundsFit];
+        CGFloat zoom = self->_userZoom > 1.01 ? self->_userZoom : 1.0;
+        CGFloat target = MIN(fit * zoom, self->_view.maxScaleFactor);
+        if (fit > 0 && fabs(self->_view.scaleFactor - target) > 0.0005) {
+            self->_view.minScaleFactor = fit;
+            self->_view.scaleFactor = target;
+        }
+    });
 }
 
 // Lets JS place overlays exactly on the page instead of guessing PDFKit's
@@ -559,19 +594,15 @@ using namespace facebook::react;
     if (index == _zoomPageIndex && fit > 0) {
         _userZoom = _view.scaleFactor / fit;
     }
+    // A scale below the reader's zoom is PDFKit re-fitting, not the reader
+    if (_userZoom <= 1.01) [self relayoutSoon];
     [self emitPageRectSoon];
 }
 
 - (void)handlePageChange:(NSNotification *)notification {
     NSUInteger index = [_view.document indexForPage:_view.currentPage];
     _zoomPageIndex = (NSInteger)index;
-    if (_userZoom > 1.01) {
-        CGFloat zoom = _userZoom;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGFloat fit = [self boundsFit];
-            if (fit > 0) self->_view.scaleFactor = MIN(fit * zoom, self->_view.maxScaleFactor);
-        });
-    }
+    [self relayoutSoon];
     PdfAnnotationViewEventEmitter::OnPageChange event = PdfAnnotationViewEventEmitter::OnPageChange{(int)index};
     if (_eventEmitter != nullptr) {
        std::dynamic_pointer_cast<const PdfAnnotationViewEventEmitter>(_eventEmitter)
@@ -580,6 +611,10 @@ using namespace facebook::react;
     // New pages bring freshly created overlay canvases and recognizers.
     dispatch_async(dispatch_get_main_queue(), ^{
         [self refreshPencilTouchFiltering];
+    });
+    // After the new page has been laid out and held at its fit or the reader's zoom
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.16 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [PdfAnnotationView scrollPagesToTopIn:self->_view];
     });
     [self emitPageRectSoon];
 }

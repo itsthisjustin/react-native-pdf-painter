@@ -79,4 +79,48 @@ RCT_EXPORT_METHOD(renderPdfToImages:(NSString *)pdfPath
     });
 }
 
+// Renders some pages of a PDF as small JPEGs named pdfpage_<index>.jpg in outputDir, for a
+// page overview that fills in as it goes. A page whose file is already there is skipped, so
+// the folder is a cache: opening the overview again costs nothing. Resolves with the indexes done.
+RCT_EXPORT_METHOD(renderPdfPages:(NSString *)pdfPath
+                  outputDir:(NSString *)outputDir
+                  maxDimension:(nonnull NSNumber *)maxDimension
+                  pages:(NSArray<NSNumber *> *)pages
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *outDir = stripFileScheme(outputDir);
+        NSFileManager *files = [NSFileManager defaultManager];
+        [files createDirectoryAtPath:outDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+        PDFDocument *document = nil;
+        CGFloat maxDim = maxDimension.doubleValue > 0 ? maxDimension.doubleValue : 400;
+        NSMutableArray<NSNumber *> *done = [NSMutableArray arrayWithCapacity:pages.count];
+        for (NSNumber *index in pages) {
+            NSString *outPath = [outDir stringByAppendingPathComponent:[NSString stringWithFormat:@"pdfpage_%ld.jpg", (long)index.integerValue]];
+            if ([files fileExistsAtPath:outPath]) { [done addObject:index]; continue; }
+            if (!document) {
+                document = [[PDFDocument alloc] initWithURL:[NSURL fileURLWithPath:stripFileScheme(pdfPath)]];
+                if (!document) {
+                    reject(@"pdf_load_failed", @"Could not open PDF", nil);
+                    return;
+                }
+            }
+            if (index.integerValue < 0 || index.unsignedIntegerValue >= document.pageCount) continue;
+            @autoreleasepool {
+                PDFPage *page = [document pageAtIndex:index.unsignedIntegerValue];
+                CGRect bounds = [page boundsForBox:kPDFDisplayBoxMediaBox];
+                if (bounds.size.width <= 0 || bounds.size.height <= 0) continue;
+                CGFloat scale = maxDim / MAX(bounds.size.width, bounds.size.height);
+                CGSize size = CGSizeMake(round(bounds.size.width * scale), round(bounds.size.height * scale));
+                UIImage *image = [page thumbnailOfSize:size forBox:kPDFDisplayBoxMediaBox];
+                NSData *jpeg = UIImageJPEGRepresentation(image, 0.8);
+                if (jpeg && [jpeg writeToFile:outPath atomically:YES]) [done addObject:index];
+            }
+        }
+        resolve(done);
+    });
+}
+
 @end
